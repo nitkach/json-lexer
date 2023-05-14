@@ -10,6 +10,12 @@ pub(crate) struct Token {
     pub(crate) kind: TokenKind,
 }
 
+pub(crate) struct NumberContext {
+    number: f64,
+    fraction: f64,
+    first_char: char,
+    state: State,
+}
 /*
 {
     "a": "string",
@@ -64,6 +70,68 @@ impl Token {
     }
 }
 
+impl NumberContext {
+    fn new(first_char: char) -> NumberContext {
+        NumberContext {
+            number: if let Some(digit) = first_char.to_digit(10) {
+                f64::from(digit)
+            } else {
+                0.0
+            },
+            fraction: 0.1,
+            first_char,
+            state: match first_char {
+                '-' => State::Sign,
+                '0' => State::LeadingZero,
+                '1'..='9' => State::IntegerPart,
+                _ => unreachable!(),
+            },
+        }
+    }
+
+    fn push_integer_digit(&mut self, num: char) {
+        let digit = f64::from(num.to_digit(10).unwrap());
+
+        // -123
+        // first_char = '-' = -0.0
+        //  -0.0 * 10 =   -0.0 + (-1.0) = -1.0
+        //  -1.0 * 10 =  -10.0 + (-2.0) = -12.0
+        // -12.0 * 10 = -120.0 + (-3.0) = -123.0
+        // -(12.0 * 10 + (3.0)) = -123.0
+        // number * 10 - digit
+
+        // 123
+        // first_char = '1' = 1.0
+        //   1.0 * 10 =   10.0 + (2.0) = 12.0
+        //  12.0 * 10 =  120.0 + (3.0) = 123.0
+        // number * 10 + digit
+
+        // suggestion: we know the first character of the number -
+        // - we can make it negative at the end of the function or
+        // leave it unchanged: if first_char == '-' {
+        //    return -number
+        // } else {
+        //    return number
+        // }
+        self.number = self.number.mul_add(10.0, digit);
+    }
+
+    fn number_sign(self) -> f64 {
+        if self.first_char == '-' {
+            -self.number
+        } else {
+            self.number
+        }
+    }
+
+    fn push_mantissa_digit(&mut self, num: char) {
+        let digit = f64::from(num.to_digit(10).unwrap());
+
+        self.number = self.fraction.mul_add(digit, self.number);
+        self.fraction *= 0.1;
+    }
+}
+
 impl Cursor<'_> {
     /// Parses a token from the input string.
     pub fn eat_token(&mut self) -> Option<Token> {
@@ -115,68 +183,42 @@ impl Cursor<'_> {
     }
 
     fn eat_number(&mut self, first_char: char) -> TokenKind {
-        // - | 0..9
-        //  ^       ^     ^
-        // -0.01
-        let mut number: f64 = if let Some(digit) = first_char.to_digit(10) {
-            f64::from(digit)
-        } else {
-            0.0
-        };
-        let mut fraction: f64 = 0.1;
-
-        let mut state = match first_char {
-            '-' => State::Sign,
-            '0' => State::LeadingZero,
-            '1'..='9' => State::IntegerPart,
-            _ => unreachable!(),
-        };
+        // TODO: scientific notation | binary OR hexadecimal form
+        let mut context = NumberContext::new(first_char);
 
         loop {
             let char = self.peek_first();
-            match (&state, char) {
+            match (&context.state, char) {
                 // -0
                 (State::Sign, Some('0')) => {
-                    state = State::LeadingZero;
-                    self.eat_char();
+                    context.state = State::LeadingZero;
                 }
 
                 // -1..=9
                 (State::Sign, Some(num @ '1'..='9')) => {
-                    state = State::IntegerPart;
-                    push_integer_digit(num, &mut number);
-                    self.eat_char();
+                    context.state = State::IntegerPart;
+                    context.push_integer_digit(num);
                 }
 
-                // 0.
-                (State::LeadingZero, Some('.')) => {
-                    state = State::Dot;
-                    self.eat_char();
+                // 0. | // 0..=9 .
+                (State::LeadingZero | State::IntegerPart, Some('.')) => {
+                    context.state = State::Dot;
                 }
 
                 // .0..=9
                 (State::Dot, Some(num @ '0'..='9')) => {
-                    state = State::Mantissa;
-                    push_mantissa_digit(num, &mut number, &mut fraction);
-                    self.eat_char();
+                    context.state = State::Mantissa;
+                    context.push_mantissa_digit(num);
                 }
 
                 // 0..=9 0..=9
                 (State::IntegerPart, Some(num @ '0'..='9')) => {
-                    push_integer_digit(num, &mut number);
-                    self.eat_char();
-                }
-
-                // 0..=9 .
-                (State::IntegerPart, Some('.')) => {
-                    state = State::Dot;
-                    self.eat_char();
+                    context.push_integer_digit(num);
                 }
 
                 // 0..=9: 0..=9
                 (State::Mantissa, Some(num @ '0'..='9')) => {
-                    push_mantissa_digit(num, &mut number, &mut fraction);
-                    self.eat_char();
+                    context.push_mantissa_digit(num);
                 }
 
                 // -AnyChar | .AnyChar | 0{0, 1..=9}
@@ -186,9 +228,10 @@ impl Cursor<'_> {
 
                 // .0..=9
                 (State::Mantissa | State::IntegerPart | State::LeadingZero, _) => {
-                    return TokenKind::Number(number_sign(number, first_char));
+                    return TokenKind::Number(context.number_sign());
                 }
             }
+            self.eat_char();
         }
     }
 
@@ -202,60 +245,6 @@ impl Cursor<'_> {
         }
         kind
     }
-}
-
-fn number_sign(number: f64, first_char: char) -> f64 {
-    if first_char == '-' {
-        -number
-    } else {
-        number
-    }
-}
-
-fn push_integer_digit(num: char, number: &mut f64) {
-    let digit = f64::from(num.to_digit(10).unwrap());
-
-    // -123
-    // first_char = '-' = -0.0
-    //  -0.0 * 10 =   -0.0 + (-1.0) = -1.0
-    //  -1.0 * 10 =  -10.0 + (-2.0) = -12.0
-    // -12.0 * 10 = -120.0 + (-3.0) = -123.0
-    // -(12.0 * 10 + (3.0)) = -123.0
-    // number * 10 - digit
-
-    // 123
-    // first_char = '1' = 1.0
-    //   1.0 * 10 =   10.0 + (2.0) = 12.0
-    //  12.0 * 10 =  120.0 + (3.0) = 123.0
-    // number * 10 + digit
-
-    // suggestion: we know the first character of the number -
-    // - we can make it negative at the end of the function or
-    // leave it unchanged: if first_char == '-' {
-    //    return -number
-    // } else {
-    //    return number
-    // }
-    *number = number.mul_add(10.0, digit);
-    // if *number >= 0.0 {
-    // } else {
-    //     *number = number.mul_add(10.0, -digit);
-    // }
-}
-
-fn push_mantissa_digit(num: char, number: &mut f64, fraction: &mut f64) {
-    let digit = f64::from(num.to_digit(10).unwrap());
-
-    // 123.123
-    // 123.0
-    // 123.0 + 1*0.1 = 123.1      | 0.1
-    // 123.1 + 2*0.01 = 123.12    | 0.01
-    // 123.12 + 3*0.001 = 123.123 | 0.001
-    //
-    // -123.123
-
-    *number = fraction.mul_add(digit, *number);
-    *fraction *= 0.1;
 }
 
 // Box<[Token]>
@@ -294,7 +283,6 @@ mod tests {
 
     #[track_caller]
     fn assert_snapshot(string: &str, expected: &str) {
-        // 123.123567 * 1000 = 123123.4567.trunc() -> 123123 / 1000 -> 123.123
         let tokens = tokenize(string);
 
         let mut actual = vec![];
