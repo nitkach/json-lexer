@@ -10,34 +10,28 @@ pub(crate) struct Token {
     pub(crate) kind: TokenKind,
 }
 
-pub(crate) struct NumberContext {
-    number: f64,
-    fraction: f64,
-    first_char: char,
-    state: State,
+impl Token {
+    fn new(kind: TokenKind, len: u32) -> Token {
+        Token { len, kind }
+    }
 }
-/*
-{
-    "a": "string",
-    "b": true,
-    "m": [
-        10,
-        20
-    ]
-}
-*/
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum TokenKind {
-    String,
+    // done
+    String(String),
+    // done
     Number(f64),
     // done
     True,
     // done
     False,
 
+    // done
     Colon,
+    // done
     Comma,
+    // done
     Whitespace,
 
     // done
@@ -56,7 +50,7 @@ pub(crate) enum TokenKind {
     Invalid,
 }
 
-enum State {
+enum NumberState {
     Sign,
     LeadingZero,
     IntegerPart,
@@ -64,10 +58,21 @@ enum State {
     Dot,
 }
 
-impl Token {
-    fn new(kind: TokenKind, len: u32) -> Token {
-        Token { len, kind }
-    }
+enum StringState {
+    String,
+    Escape,
+}
+
+pub(crate) struct NumberContext {
+    number: f64,
+    fraction: f64,
+    first_char: char,
+    state: NumberState,
+}
+
+pub(crate) struct StringContext {
+    string: String,
+    state: StringState,
 }
 
 impl NumberContext {
@@ -81,11 +86,19 @@ impl NumberContext {
             fraction: 0.1,
             first_char,
             state: match first_char {
-                '-' => State::Sign,
-                '0' => State::LeadingZero,
-                '1'..='9' => State::IntegerPart,
+                '-' => NumberState::Sign,
+                '0' => NumberState::LeadingZero,
+                '1'..='9' => NumberState::IntegerPart,
                 _ => unreachable!(),
             },
+        }
+    }
+
+    fn number_sign(self) -> f64 {
+        if self.first_char == '-' {
+            -self.number
+        } else {
+            self.number
         }
     }
 
@@ -116,19 +129,20 @@ impl NumberContext {
         self.number = self.number.mul_add(10.0, digit);
     }
 
-    fn number_sign(self) -> f64 {
-        if self.first_char == '-' {
-            -self.number
-        } else {
-            self.number
-        }
-    }
-
     fn push_mantissa_digit(&mut self, num: char) {
         let digit = f64::from(num.to_digit(10).unwrap());
 
         self.number = self.fraction.mul_add(digit, self.number);
         self.fraction *= 0.1;
+    }
+}
+
+impl StringContext {
+    fn new() -> StringContext {
+        StringContext {
+            string: "".to_owned(),
+            state: StringState::String,
+        }
     }
 }
 
@@ -152,7 +166,8 @@ impl Cursor<'_> {
         /*
         {
             "a": "string",
-            "b": tru,
+            "b": true,
+            "c": 100,
             "m": [
                 10,
                 20
@@ -166,20 +181,63 @@ impl Cursor<'_> {
             '[' => TokenKind::OpenBracket,
             ']' => TokenKind::ClosedBracket,
 
-            // have: 'n', 'u'. need: peek_first:'l'-> peek_second: 'l'
-            'n' => self.eat_chars(TokenKind::Null, "ull"),
-            't' => self.eat_chars(TokenKind::True, "rue"),
-            'f' => self.eat_chars(TokenKind::False, "alse"),
+            ':' => TokenKind::Colon,
+            ',' => TokenKind::Comma,
+            ' ' => TokenKind::Whitespace,
+
+            // null, true, false
+            'n' => self.eat_bool_or_null(TokenKind::Null, "ull"),
+            't' => self.eat_bool_or_null(TokenKind::True, "rue"),
+            'f' => self.eat_bool_or_null(TokenKind::False, "alse"),
+
             // Number
-            // -0.9, 1
-            // 00.9
             '0'..='9' | '-' => self.eat_number(first_char),
 
-            _ => todo!(),
+            // String
+            '"' => self.eat_string(),
+
+            _ => TokenKind::Invalid,
         };
         let res = Token::new(token_kind, self.token_len());
         self.reset_token_len();
         Some(res)
+    }
+
+    fn eat_string(&mut self) -> TokenKind {
+        // BUG: json control symbols consider invalid and
+        // TODO: add other unescape symbols
+        let mut context = StringContext::new();
+        loop {
+            let char = self.eat_char();
+            match (&context.state, char) {
+                // \
+                (StringState::String, Some('\\')) => {
+                    context.state = StringState::Escape;
+                }
+                // "
+                (StringState::String, Some('"')) => return TokenKind::String(context.string),
+                //
+                (StringState::String, Some(char)) => {
+                    context.string.push(char);
+                    context.state = StringState::String;
+                }
+                // \"
+                (StringState::Escape, Some(char)) => {
+                    let unescaped = match char {
+                        '\\' => '\\',
+                        'n' => '\n',
+                        't' => '\t',
+                        'r' => '\r',
+                        '"' => '"',
+                        _ => return TokenKind::Invalid,
+                    };
+                    context.string.push(unescaped);
+                    context.state = StringState::String;
+                }
+                // "str\EOF
+                (StringState::String | StringState::Escape, None) => return TokenKind::Invalid,
+            }
+        }
     }
 
     fn eat_number(&mut self, first_char: char) -> TokenKind {
@@ -190,44 +248,47 @@ impl Cursor<'_> {
             let char = self.peek_first();
             match (&context.state, char) {
                 // -0
-                (State::Sign, Some('0')) => {
-                    context.state = State::LeadingZero;
+                (NumberState::Sign, Some('0')) => {
+                    context.state = NumberState::LeadingZero;
                 }
 
                 // -1..=9
-                (State::Sign, Some(num @ '1'..='9')) => {
-                    context.state = State::IntegerPart;
+                (NumberState::Sign, Some(num @ '1'..='9')) => {
+                    context.state = NumberState::IntegerPart;
                     context.push_integer_digit(num);
                 }
 
                 // 0. | // 0..=9 .
-                (State::LeadingZero | State::IntegerPart, Some('.')) => {
-                    context.state = State::Dot;
+                (NumberState::LeadingZero | NumberState::IntegerPart, Some('.')) => {
+                    context.state = NumberState::Dot;
                 }
 
                 // .0..=9
-                (State::Dot, Some(num @ '0'..='9')) => {
-                    context.state = State::Mantissa;
+                (NumberState::Dot, Some(num @ '0'..='9')) => {
+                    context.state = NumberState::Mantissa;
                     context.push_mantissa_digit(num);
                 }
 
                 // 0..=9 0..=9
-                (State::IntegerPart, Some(num @ '0'..='9')) => {
+                (NumberState::IntegerPart, Some(num @ '0'..='9')) => {
                     context.push_integer_digit(num);
                 }
 
                 // 0..=9: 0..=9
-                (State::Mantissa, Some(num @ '0'..='9')) => {
+                (NumberState::Mantissa, Some(num @ '0'..='9')) => {
                     context.push_mantissa_digit(num);
                 }
 
                 // -AnyChar | .AnyChar | 0{0, 1..=9}
-                (State::Sign, _) | (State::Dot, _) | (State::LeadingZero, Some('0'..='9')) => {
-                    return TokenKind::Invalid
-                }
+                (NumberState::Sign, _)
+                | (NumberState::Dot, _)
+                | (NumberState::LeadingZero, Some('0'..='9')) => return TokenKind::Invalid,
 
                 // .0..=9
-                (State::Mantissa | State::IntegerPart | State::LeadingZero, _) => {
+                (
+                    NumberState::Mantissa | NumberState::IntegerPart | NumberState::LeadingZero,
+                    _,
+                ) => {
                     return TokenKind::Number(context.number_sign());
                 }
             }
@@ -235,7 +296,7 @@ impl Cursor<'_> {
         }
     }
 
-    fn eat_chars(&mut self, kind: TokenKind, chars: &str) -> TokenKind {
+    fn eat_bool_or_null(&mut self, kind: TokenKind, chars: &str) -> TokenKind {
         for char in chars.chars() {
             if Some(char) == self.peek_first() {
                 self.eat_char();
@@ -265,7 +326,7 @@ mod tests {
 
     // create tests for state transition (for every match arm)
     #[test]
-    fn smoke() {
+    fn smoke_number() {
         assert_snapshot("-0", "2:Number(-0.0)");
         // assert_snapshot("-1", "2:Number(-1.0)");
         assert_snapshot("0.", "2:Invalid");
@@ -279,6 +340,19 @@ mod tests {
         assert_snapshot("-100.000001", "11:Number(-100.0)");
         assert_snapshot("[100.200]", "1:OpenBracket,7:Number(100.2),1:ClosedBracket");
         assert_snapshot("1-00", "1:Number(1.0),2:Invalid,1:Number(0.0)");
+        assert_snapshot("-201.102", "8:Number(-201.102)");
+    }
+
+    #[test]
+    fn smoke_string() {
+        assert_snapshot("\"abcd\"", "6:String(\"abcd\")");
+        assert_snapshot("\"a\\\"bc\\\"d\"", "10:String(\"a\\\"bc\\\"d\")"); // "a\"b\"c" -> a"b"c
+        assert_snapshot("\"ab\\ncd\"", "8:String(\"ab\\ncd\")");
+        assert_snapshot("\"ab\\tcd\"", "8:String(\"ab\\tcd\")");
+        assert_snapshot("\"ab\\\\cd\"", "8:String(\"ab\\\\cd\")");
+        assert_snapshot("\"ab\\rcd\"", "8:String(\"ab\\rcd\")");
+
+        assert_snapshot("\"abcd", "5:Invalid");
     }
 
     #[track_caller]
