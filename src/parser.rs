@@ -1,7 +1,9 @@
-use std::{collections::BTreeMap, iter::Map};
+use core::fmt;
+use std::collections::BTreeMap;
 
-use crate::lexer::{self, TokenKind};
+use crate::lexer::{self, TokenKind, TokenizeError};
 
+#[derive(Debug)]
 pub enum Value {
     Null,
     Bool(bool),
@@ -11,421 +13,751 @@ pub enum Value {
     Object(BTreeMap<String, Value>),
 }
 
-pub enum ParsingError {
+#[derive(Debug)]
+enum ParsingError {
     Syntax,
     ExpectedValue,
+    ExpectedKey,
     ExpectedEndOfFile,
+    ExpectedColon,
+    TrailingComma,
+    ExpectedCommaOrClosedCurly,
+    ExpectedCommaOrClosedBracket,
 }
 
-enum State {
-    Start,
+#[derive(Debug)]
+pub struct ParsingErrorContext {
+    error: ParsingError,
+    context: ParsingContext,
+    token_kind: Option<TokenKind>,
+}
+
+#[derive(Debug)]
+enum ExpectingValue {
+    Obj {
+        acc: BTreeMap<String, Value>,
+        key: String,
+    },
+
+    Arr {
+        acc: Vec<Value>,
+    },
+}
+
+#[derive(Debug)]
+enum Expectation {
+    Value,
     Obj {
         acc: BTreeMap<String, Value>,
         kv: KvState,
     },
-    Arr {
+    CommaOrClosedBracket {
         acc: Vec<Value>,
-        val: ValState,
     },
-    SimpleLiteral(Value),
+    EndOfTokens(Value),
 }
 
+#[derive(Debug)]
 enum KvState {
     Start,
     AteKey(String),
-    AteColon(String),
     AteValue,
 }
 
-enum ValState {
-    Start,
-    AteValue,
-}
-/*
-{
-    "string-number": 10,
-    "string-object": {
-        "string-array": [
-            10,
-            20,
-            30
-        ]
+impl fmt::Display for ParsingErrorContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.context.expectation {
+            Expectation::Value => match self.context.stack.last() {
+                Some(obj_or_arr) => match obj_or_arr {
+                    ExpectingValue::Obj { acc: _, key } => {
+                        write!(f, "Expected value after key \"{key}\" ")?;
+                    }
+                    ExpectingValue::Arr { acc: _ } => {
+                        write!(f, "Expected array value ")?;
+                    }
+                },
+                None => {
+                    write!(f, "Expected JSON object, array or literal - ")?;
+                }
+            },
+            Expectation::Obj { acc, kv } => match kv {
+                KvState::Start => {
+                    write!(f, "Expected string ")?;
+                    if acc.is_empty() {
+                        write!(f, "or closing curly, ")?;
+                    }
+                }
+                KvState::AteKey(key) => {
+                    write!(f, "Expected colon after key \"{key}\", ")?;
+                }
+                KvState::AteValue => {
+                    write!(f, "Expected comma or closing curly, ")?;
+                }
+            },
+            Expectation::CommaOrClosedBracket { acc: _ } => {
+                write!(f, "Expected comma or closed bracket, ")?;
+            }
+            Expectation::EndOfTokens(_) => {
+                write!(f, "Expected end of tokens, ")?;
+            }
+        }
+
+        match &self.error {
+            // passed Syntax with found error-caused context
+            ParsingError::Syntax => {
+                match &self.token_kind {
+                    Some(TokenKind::Invalid(tokenize_error)) => match tokenize_error {
+                        TokenizeError::NoSuchToken(char) => {
+                            write!(f, "found '{char}' ")?;
+                        }
+                        TokenizeError::NoSuchEscapeSymbol(char) => {
+                            write!(f, "'{char}' - invalid escape symbol ")?;
+                        }
+                        TokenizeError::MissingDoubleQuote(string) => {
+                            write!(f, "missing double quote in: \"{string}\" ")?;
+                        }
+                        TokenizeError::ExpectedDigit(char) => {
+                            write!(f, "expected digit, found '{char}' ")?;
+                        }
+                        TokenizeError::ExpectedDot(char) => {
+                            write!(f, "expected dot, found '{char}'")?;
+                        }
+                        TokenizeError::MetEndOfFile => {
+                            write!(f, "met end of file ")?;
+                        }
+                        TokenizeError::ExpectedTrue(char) => {
+                            write!(f, "expected 'true' literal, found \"{char}\" ")?;
+                        }
+                        TokenizeError::ExpectedFalse(char) => {
+                            write!(f, "expected 'false' literal, found \"{char}\" ")?;
+                        }
+                        TokenizeError::ExpectedNull(char) => {
+                            write!(f, "expected 'null' literal, found \"{char}\" ")?;
+                        }
+                        TokenizeError::InvalidUnicode(num) => {
+                            write!(f, "there is no symbol with code {num} ")?;
+                        },
+                        TokenizeError::InvalidUnicodeChar(char) => {
+                            write!(f, "invalid unicode symbol: '{char}' ")?;
+                        },
+                    },
+                    Some(_) => write!(f, "BUG(Some({:?})) ", &self.token_kind)?,
+                    None => write!(f, "BUG(None) ")?,
+                };
+                write!(f, "| Syntax")?;
+            }
+
+            // passed like "effect" after discrepancy
+            ParsingError::ExpectedValue => {
+                // cause: Expectation::Value -> effect: ParsingError: ExpectedValue
+                match &self.token_kind {
+                    Some(token_kind) => {
+                        write!(f, "but found ")?;
+                        match token_kind {
+                            TokenKind::Colon => write!(f, "colon ")?,
+                            TokenKind::Comma => write!(f, "comma ")?,
+                            TokenKind::ClosedCurly => write!(f, "closed curly ")?,
+                            TokenKind::ClosedBracket => write!(f, "closed bracket ")?,
+                            _ => {
+                                // because in other TokenKind's process of deserialization will continue
+                                write!(f, "BUG({:?}) ", token_kind)?;
+                            }
+                        };
+                    }
+                    None => write!(f, "but the string ended ")?,
+                };
+                write!(f, "unexpectedly | ExpectedValue")?
+            }
+
+            ParsingError::ExpectedKey => {
+                match &self.token_kind {
+                    Some(token_kind) => {
+                        write!(f, "but found ")?;
+                        match token_kind {
+                            TokenKind::Number(num) => write!(f, "number {num} ")?,
+                            TokenKind::True => write!(f, "'true' ")?,
+                            TokenKind::False => write!(f, "'false' ")?,
+                            TokenKind::Colon => write!(f, "colon ")?,
+                            TokenKind::Comma => write!(f, "comma ")?,
+                            TokenKind::OpenCurly => write!(f, "open curly ")?,
+                            TokenKind::OpenBracket => write!(f, "open bracket ")?,
+                            TokenKind::ClosedBracket => write!(f, "closed bracket ")?,
+                            TokenKind::Null => write!(f, "'null' ")?,
+
+                            _ => write!(f, "BUG({:?}) ", token_kind)?,
+                        }
+                    }
+                    None => write!(f, "but the string ended ")?,
+                };
+                write!(f, "unexpectedly | ExpectedKey")?
+                // cause: Expectation::Obj { acc: _, kv: Start } -> effect: ParsingError: ExpectedKey
+            }
+            ParsingError::ExpectedEndOfFile => {
+                match &self.token_kind {
+                    Some(token_kind) => {
+                        write!(f, "but found ")?;
+                        match token_kind {
+                            TokenKind::String(string) => write!(f, "string \"{string}\"")?,
+                            TokenKind::Number(number) => write!(f, "number {number}")?,
+                            TokenKind::True => write!(f, "'true' ")?,
+                            TokenKind::False => write!(f, "'false' ")?,
+                            TokenKind::Colon => write!(f, "colon ")?,
+                            TokenKind::Comma => write!(f, "comma ")?,
+                            TokenKind::OpenCurly => write!(f, "open curly ")?,
+                            TokenKind::ClosedCurly => write!(f, "closed curly ")?,
+                            TokenKind::OpenBracket => write!(f, "open bracket ")?,
+                            TokenKind::ClosedBracket => write!(f, "closed bracket ")?,
+                            TokenKind::Null => write!(f, "'null' ")?,
+                            TokenKind::Invalid(_) => write!(f, "extra characters ")?,
+
+                            TokenKind::Whitespace => write!(f, "BUG(TokenKind::Whitespace) ")?,
+                        }
+                    }
+                    None => write!(f, "BUG(None) ")?,
+                };
+                // cause: Expectation::EndOfTokens, but found another one -> effect: ParsingError: ExpectedEndOfFile
+                // write!(f, )?;
+                write!(f, "unexpectedly | ExpectedEndOfFile")?
+            }
+            ParsingError::ExpectedColon => {
+                match &self.token_kind {
+                    Some(token_kind) => {
+                        write!(f, "but found ")?;
+                        match token_kind {
+                            TokenKind::String(string) => write!(f, "string \"{string}\"")?,
+                            TokenKind::Number(num) => write!(f, "number {num}")?,
+                            TokenKind::True => write!(f, "'true' ")?,
+                            TokenKind::False => write!(f, "'false' ")?,
+                            TokenKind::Comma => write!(f, "comma ")?,
+                            TokenKind::OpenCurly => write!(f, "open curly ")?,
+                            TokenKind::ClosedCurly => write!(f, "closed curly ")?,
+                            TokenKind::OpenBracket => write!(f, "open bracket ")?,
+                            TokenKind::ClosedBracket => write!(f, "closed bracket ")?,
+                            TokenKind::Null => write!(f, "'null' ")?,
+                            TokenKind::Invalid(_) => write!(f, "extra characters ")?,
+
+                            _ => write!(f, "BUG({:?}) ", token_kind)?,
+                        }
+                    }
+                    None => write!(f, "but the string ended ")?,
+                };
+                write!(f, "unexpectedly | ExpectedColon")?
+            }
+            ParsingError::TrailingComma => {
+                /*
+                {
+                    "string-num": 10,
+                }
+                 */
+                match &self.token_kind {
+                    Some(TokenKind::ClosedCurly) => write!(f, "but found trailing comma ")?,
+                    Some(_) => write!(f, "but found BUG({:?})", &self.token_kind)?,
+                    None => write!(f, "BUG(None) ")?,
+                };
+                write!(f, "unexpectedly | TrailingComma")?;
+            }
+            ParsingError::ExpectedCommaOrClosedCurly => {
+                match &self.token_kind {
+                    Some(token_kind) => {
+                        write!(f, "but found ")?;
+                        match token_kind {
+                            TokenKind::String(string) => write!(f, "string \"{string}\"")?,
+                            TokenKind::Number(number) => write!(f, "number {number}")?,
+                            TokenKind::True => write!(f, "'true' ")?,
+                            TokenKind::False => write!(f, "'false' ")?,
+                            TokenKind::Colon => write!(f, "colon ")?,
+                            TokenKind::OpenCurly => write!(f, "open curly ")?,
+                            TokenKind::OpenBracket => write!(f, "open bracket ")?,
+                            TokenKind::ClosedBracket => write!(f, "closed bracket ")?,
+                            TokenKind::Null => write!(f, "'null' ")?,
+                            TokenKind::Invalid(_) => write!(f, "extra characters ")?,
+
+                            _ => write!(f, "BUG({:?}) ", token_kind)?,
+                        }
+                    }
+                    None => write!(f, "but the string ended ")?,
+                };
+                write!(f, "unexpectedly | ExpectedCommaOrClosedCurly")?;
+            }
+            ParsingError::ExpectedCommaOrClosedBracket => {
+                match &self.token_kind {
+                    Some(token_kind) => {
+                        write!(f, "but found ")?;
+                        match token_kind {
+                            TokenKind::String(string) => write!(f, "string \"{string}\"")?,
+                            TokenKind::Number(number) => write!(f, "number {number}")?,
+                            TokenKind::True => write!(f, "'true' ")?,
+                            TokenKind::False => write!(f, "'false' ")?,
+                            TokenKind::Colon => write!(f, "colon ")?,
+                            TokenKind::OpenCurly => write!(f, "open curly ")?,
+                            TokenKind::OpenBracket => write!(f, "open bracket ")?,
+                            TokenKind::Null => write!(f, "'null' ")?,
+                            TokenKind::Invalid(_) => write!(f, "extra characters ")?,
+                            TokenKind::ClosedCurly => write!(f, "closed curly ")?,
+
+                            _ => write!(f, "BUG({:?}) ", token_kind)?,
+                        }
+                    }
+                    None => write!(f, "but the string ended ")?,
+                };
+                write!(f, "unexpectedly | ExpectedCommaOrClosedBracket")?;
+            }
+        }
+        Ok(())
     }
 }
-*/
 
+#[derive(Debug)]
 pub(crate) struct ParsingContext {
-    stack: Vec<State>, // for storing
-    cur: State,
+    stack: Vec<ExpectingValue>,
+    expectation: Expectation,
 }
 
 impl ParsingContext {
     pub(crate) fn new() -> ParsingContext {
         ParsingContext {
             stack: Vec::new(),
-            cur: State::Start,
+            expectation: Expectation::Value,
         }
     }
 
-    pub(crate) fn parse(mut self, string: &str) -> Result<Value, ParsingError> {
-        /*
-        cur: Start
-        stack: []
-        token: OpenCurly
-
-        cur: Obj { {}, Start }
-        stack: []
-        token: String("foo")
-
-        cur: Obj { {}, AteKey("foo") }
-        stack: []
-        token: Colon
-
-        cur: Start
-        stack: [Obj { {}, AteColon("foo") }]
-        token: Number(25)
-
-        cur: Obj { {"foo": 25}, AteValue }
-        stack: []
-        token: ,
-
-        cur: Obj { {"foo": 25}, Start }
-        stack: []
-        token: "bar"
-
-        cur: Obj { {"foo": 25}, AteKey("bar") }
-        stack: []
-        token: :
-
-        cur: Start
-        stack: [Obj { {"foo": 25}, AteColon("bar") }]
-        token: [
-
-        cur: Arr { acc: [], Start }
-        stack: [Obj { {"foo": 25}, AteColon("bar") }]
-        token: 1
-
-        cur: Arr { acc: [1], AteVal }
-        stack: [Obj { {"foo": 25}, AteColon("bar") }]
-        token: ,
-
-
-
-        {
-            "foo": 25,
-            "bar": [1, 2, [3, 4]]
-        }
-        */
-        // #TODO whitespaces
+    pub(crate) fn parse(mut self, string: &str) -> Result<Value, ParsingErrorContext> {
         for token in lexer::tokenize(string) {
-            match (&mut self.cur, token.kind) {
-                (State::Start, TokenKind::OpenCurly) => {
-                    self.cur = State::Obj {
-                        acc: BTreeMap::new(),
-                        kv: KvState::Start,
-                    };
-                }
+            match &mut self.expectation {
+                Expectation::Value => match token.kind {
+                    TokenKind::String(string) => self.make_value(Value::String(string)),
+                    TokenKind::Number(num) => self.make_value(Value::Number(num)),
+                    TokenKind::True => self.make_value(Value::Bool(true)),
+                    TokenKind::False => self.make_value(Value::Bool(false)),
+                    TokenKind::Null => self.make_value(Value::Null),
 
-                (State::Start, TokenKind::OpenBracket) => {
-                    self.cur = State::Arr {
-                        acc: Vec::new(),
-                        val: ValState::Start,
-                    };
-                }
+                    TokenKind::Whitespace => {}
 
-                (State::Start, TokenKind::Number(num)) => self.make_value(Value::Number(num)),
-                (State::Start, TokenKind::String(string)) => self.make_value(Value::String(string)),
-                (State::Start, TokenKind::True) => self.make_value(Value::Bool(true)),
-                (State::Start, TokenKind::False) => self.make_value(Value::Bool(false)),
-                (State::Start, TokenKind::Null) => self.make_value(Value::Null),
-
-                (State::SimpleLiteral(_), _) => {
-                    // error
-                }
-
-                (State::Arr { acc, val }, TokenKind::Number(num)) => {
-                    match val {
-                        ValState::Start => {
-                            *val = ValState::AteValue;
-                            acc.push(Value::Number(num));
-                        }
-                        ValState::AteValue => {
-                            // error
-                        }
+                    TokenKind::OpenCurly => {
+                        self.expectation = Expectation::Obj {
+                            acc: BTreeMap::new(),
+                            kv: KvState::Start,
+                        };
                     }
-                }
-
-                (State::Arr { acc, val }, TokenKind::Comma) => {
-                    match val {
-                        ValState::Start => {
-                            // error
-                        }
-                        ValState::AteValue => {
-                            *val = ValState::Start;
-                        }
+                    TokenKind::OpenBracket => {
+                        self.stack.push(ExpectingValue::Arr { acc: Vec::new() });
                     }
-                }
 
-                // [1, 2, [3, 4]]
+                    TokenKind::ClosedBracket => {
+                        let Some(peeked) = self.stack.last() else {
+                            return Err(ParsingErrorContext {
+                                error: ParsingError::ExpectedValue,
+                                context: self,
+                                token_kind: Some(token.kind)
+                            })
+                        };
 
-                // []
-                // [1, ]
-                (State::Arr { acc, val }, TokenKind::ClosedBracket) => match val {
-                    ValState::Start => {
-                        if acc.is_empty() {
-                            self.make_value(Value::Array(Vec::new()));
-                        } else {
-                            // error: [1, ]
+                        let acc = match peeked {
+                            ExpectingValue::Arr { acc } => acc,
+                            ExpectingValue::Obj { acc: _, key: _ } => {
+                                return Err(ParsingErrorContext {
+                                    error: ParsingError::ExpectedValue,
+                                    context: self,
+                                    token_kind: Some(token.kind),
+                                })
+                            }
+                        };
+                        if !acc.is_empty() {
+                            return Err(ParsingErrorContext {
+                                error: ParsingError::ExpectedValue,
+                                context: self,
+                                token_kind: Some(token.kind),
+                            });
                         }
+                        self.stack.pop();
+                        self.make_value(Value::Array(Vec::new()));
                     }
-                    ValState::AteValue => todo!(),
+
+                    TokenKind::Invalid(_) => {
+                        //   take here ^
+                        return Err(ParsingErrorContext {
+                            error: ParsingError::Syntax,
+                            //                move here ^
+                            context: self,
+                            token_kind: Some(token.kind),
+                            //               ^ = TokenKind(Invalid(/*moved TokenizeError*/))
+                            // token_kind: None
+                        });
+                    }
+
+                    _ => {
+                        return Err(ParsingErrorContext {
+                            error: ParsingError::ExpectedValue,
+                            context: self,
+                            token_kind: Some(token.kind),
+                        })
+                    }
                 },
 
-                (State::Obj { acc, kv }, TokenKind::ClosedCurly) => match kv {
-                    KvState::Start | KvState::AteValue => {
-                        let map = std::mem::take(acc);
-                        self.make_value(Value::Object(map));
-                    }
-                    KvState::AteKey(_) => todo!(),
-                    KvState::AteColon(_) => todo!(),
-                },
+                Expectation::Obj { acc, kv } => match kv {
+                    KvState::Start => match token.kind {
+                        TokenKind::String(string) => *kv = KvState::AteKey(string),
+                        TokenKind::ClosedCurly => {
+                            if acc.is_empty() {
+                                self.make_value(Value::Object(BTreeMap::new()));
+                                continue;
+                            }
+                            return Err(ParsingErrorContext {
+                                error: ParsingError::TrailingComma,
+                                context: self,
+                                token_kind: Some(token.kind),
+                            });
+                        }
+                        TokenKind::Whitespace => {}
 
-                (State::Arr { acc, val }, TokenKind::OpenBracket) => {
-                    match val {
-                        ValState::Start => {
-                            *val = ValState::AteValue;
-                            self.stack.push(std::mem::replace(
-                                &mut self.cur,
-                                State::Arr {
-                                    acc: Vec::new(),
-                                    val: ValState::Start,
-                                },
-                            ))
+                        TokenKind::Invalid(_) => {
+                            return Err(ParsingErrorContext {
+                                error: ParsingError::Syntax,
+                                context: self,
+                                token_kind: Some(token.kind),
+                            })
                         }
-                        ValState::AteValue => {
-                            // error
+                        _ => {
+                            return Err(ParsingErrorContext {
+                                error: ParsingError::ExpectedKey,
+                                context: self,
+                                token_kind: Some(token.kind),
+                            })
                         }
-                    }
-                }
+                    },
+                    KvState::AteKey(key) => match token.kind {
+                        TokenKind::Colon => {
+                            self.stack.push(ExpectingValue::Obj {
+                                acc: std::mem::take(acc),
+                                key: std::mem::take(key),
+                            });
+                            self.expectation = Expectation::Value;
+                        }
+                        TokenKind::Whitespace => {}
 
-                (State::Obj { acc, kv }, TokenKind::Comma) => {
-                    match kv {
-                        KvState::Start => {
-                            // error
+                        TokenKind::Invalid(_) => {
+                            return Err(ParsingErrorContext {
+                                error: ParsingError::Syntax,
+                                context: self,
+                                token_kind: Some(token.kind),
+                            })
                         }
-                        KvState::AteKey(_) => {
-                            // error
+                        _ => {
+                            return Err(ParsingErrorContext {
+                                error: ParsingError::ExpectedColon,
+                                context: self,
+                                token_kind: Some(token.kind),
+                            })
                         }
-                        KvState::AteColon(_) => {
-                            // error
-                        }
-                        KvState::AteValue => {
+                    },
+                    KvState::AteValue => match token.kind {
+                        TokenKind::Comma => {
                             *kv = KvState::Start;
                         }
-                    }
-                }
+                        TokenKind::ClosedCurly => {
+                            let buf = Value::Object(std::mem::take(acc));
+                            self.make_value(buf);
+                        }
 
-                (State::Obj { acc, kv }, TokenKind::String(str)) => {
-                    match kv {
-                        KvState::Start => {
-                            *kv = KvState::AteKey(str);
-                        }
-                        KvState::AteKey(_) => {
-                            // error (?)
-                        }
-                        KvState::AteColon(key_colon) => {
-                            acc.insert(std::mem::take(key_colon), Value::String(str));
-                            // valid key = String
-                        }
-                        KvState::AteValue => {
-                            // error
-                        }
-                    }
-                }
+                        TokenKind::Whitespace => {}
 
-                (State::Obj { acc, kv }, TokenKind::Colon) => {
-                    match kv {
-                        KvState::Start => {
-                            // error
+                        TokenKind::Invalid(_) => {
+                            return Err(ParsingErrorContext {
+                                error: ParsingError::Syntax,
+                                context: self,
+                                token_kind: Some(token.kind),
+                            })
                         }
-                        KvState::AteKey(key) => {
-                            *kv = KvState::AteColon(std::mem::take(key));
-                            self.stack
-                                .push(std::mem::replace(&mut self.cur, State::Start));
-                        }
-                        KvState::AteColon(_) => {
-                            // error
-                        }
-                        KvState::AteValue => {
-                            // error
-                        }
-                    }
-                }
 
-                (State::Obj { acc, kv }, TokenKind::Number(num)) => {
-                    match kv {
-                        KvState::Start => {
-                            // error
+                        _ => {
+                            return Err(ParsingErrorContext {
+                                error: ParsingError::ExpectedCommaOrClosedCurly,
+                                context: self,
+                                token_kind: Some(token.kind),
+                            })
                         }
-                        KvState::AteKey(_) => {
-                            // error
-                        }
-                        KvState::AteColon(key_colon) => {
-                            acc.insert(std::mem::take(key_colon), Value::Number(num));
-                        }
-                        KvState::AteValue => {
-                            // error
-                        }
+                    },
+                },
+                Expectation::CommaOrClosedBracket { acc } => match token.kind {
+                    TokenKind::Comma => {
+                        self.stack.push(ExpectingValue::Arr {
+                            acc: std::mem::take(acc),
+                        });
+                        self.expectation = Expectation::Value;
                     }
-                }
-
-                // ate colon
-                (
-                    State::Obj { acc, kv },
-                    value @ (TokenKind::True | TokenKind::False | TokenKind::Null),
-                ) => {
-                    match kv {
-                        KvState::Start => {
-                            // error
-                        }
-                        KvState::AteKey(_) => {
-                            // error
-                        }
-                        KvState::AteColon(key_colon) => {
-                            acc.insert(
-                                std::mem::take(key_colon),
-                                match value {
-                                    TokenKind::True => Value::Bool(true),
-                                    TokenKind::False => Value::Bool(false),
-                                    TokenKind::Null => Value::Null,
-                                    _ => {
-                                        unreachable!();
-                                    }
-                                },
-                            );
-                        }
-                        KvState::AteValue => {
-                            // error
-                        }
+                    TokenKind::ClosedBracket => {
+                        let buf = Value::Array(std::mem::take(acc));
+                        self.make_value(buf);
                     }
-                }
-                (State::Start, TokenKind::Colon) => todo!(),
-                (State::Start, TokenKind::Comma) => todo!(),
-                (State::Start, TokenKind::Whitespace) => todo!(),
-                (State::Start, TokenKind::ClosedCurly) => todo!(),
-                (State::Start, TokenKind::ClosedBracket) => todo!(),
-                (State::Start, TokenKind::Invalid) => todo!(),
-                (State::Obj { acc, kv }, TokenKind::True) => todo!(),
-                (State::Obj { acc, kv }, TokenKind::False) => todo!(),
-                (State::Obj { acc, kv }, TokenKind::Whitespace) => todo!(),
-                (State::Obj { acc, kv }, TokenKind::OpenCurly) => todo!(),
-                (State::Obj { acc, kv }, TokenKind::OpenBracket) => todo!(),
-                (State::Obj { acc, kv }, TokenKind::ClosedBracket) => todo!(),
-                (State::Obj { acc, kv }, TokenKind::Null) => todo!(),
-                (State::Obj { acc, kv }, TokenKind::Invalid) => todo!(),
-                (State::Arr { acc, val }, TokenKind::String(_)) => todo!(),
-                (State::Arr { acc, val }, TokenKind::True) => todo!(),
-                (State::Arr { acc, val }, TokenKind::False) => todo!(),
-                (State::Arr { acc, val }, TokenKind::Colon) => todo!(),
-                (State::Arr { acc, val }, TokenKind::Whitespace) => todo!(),
-                (State::Arr { acc, val }, TokenKind::OpenCurly) => todo!(),
-                (State::Arr { acc, val }, TokenKind::ClosedCurly) => todo!(),
-                (State::Arr { acc, val }, TokenKind::Null) => todo!(),
-                (State::Arr { acc, val }, TokenKind::Invalid) => todo!(),
 
-                // _ => todo!(),
+                    TokenKind::Whitespace => {}
+
+                    TokenKind::Invalid(_) => {
+                        return Err(ParsingErrorContext {
+                            error: ParsingError::Syntax,
+                            context: self,
+                            token_kind: Some(token.kind),
+                        })
+                    }
+                    _ => {
+                        return Err(ParsingErrorContext {
+                            error: ParsingError::ExpectedCommaOrClosedBracket,
+                            context: self,
+                            token_kind: Some(token.kind),
+                        })
+                    }
+                },
+                Expectation::EndOfTokens(_) => {
+                    if TokenKind::Whitespace == token.kind {
+                        continue;
+                    }
+                    return Err(ParsingErrorContext {
+                        error: ParsingError::ExpectedEndOfFile,
+                        context: self,
+                        token_kind: Some(token.kind),
+                    });
+                }
             }
-        };
-        match self.cur {
-            State::Start => todo!(),
-            State::Obj { acc, kv } => {
-                Ok(Value::Object(acc))
+        }
+        match self.expectation {
+            Expectation::EndOfTokens(value) => Ok(value),
+            Expectation::Value => Err(ParsingErrorContext {
+                error: ParsingError::ExpectedValue,
+                context: self,
+                token_kind: None,
+            }),
+            Expectation::Obj { acc: _, ref kv } => match kv {
+                KvState::Start => Err(ParsingErrorContext {
+                    error: ParsingError::ExpectedKey,
+                    context: self,
+                    token_kind: None,
+                }),
+                KvState::AteKey(_) => Err(ParsingErrorContext {
+                    error: ParsingError::ExpectedColon,
+                    context: self,
+                    token_kind: None,
+                }),
+                KvState::AteValue => Err(ParsingErrorContext {
+                    error: ParsingError::ExpectedCommaOrClosedCurly,
+                    context: self,
+                    token_kind: None,
+                }),
             },
-            State::Arr { acc, val } => {
-                Ok(Value::Array(acc))
-            },
-            State::SimpleLiteral(value) => {
-                Ok(value)
-            }
+            Expectation::CommaOrClosedBracket { acc: _ } => Err(ParsingErrorContext {
+                error: ParsingError::ExpectedCommaOrClosedBracket,
+                context: self,
+                token_kind: None,
+            }),
         }
     }
 
+    // receive stack, not self
     // context: we find simple literal or finished creating a Value::(Obj or Arr)
     fn make_value(&mut self, value: Value) {
         match self.stack.pop() {
             Some(popped) => match popped {
-                State::Obj {
+                ExpectingValue::Obj {
                     acc: mut pop_acc,
-                    kv: pop_kv,
+                    key: pop_key,
                 } => {
-                    if let KvState::AteColon(key_colon) = pop_kv {
-                        pop_acc.insert(key_colon, value);
-                        self.cur = State::Obj {
-                            acc: pop_acc,
-                            kv: KvState::AteValue,
-                        }
-                    } else {
-                        unreachable!()
-                    }
+                    pop_acc.insert(pop_key, value);
+                    self.expectation = Expectation::Obj {
+                        acc: pop_acc,
+                        kv: KvState::AteValue,
+                    };
                 }
-                State::Arr {
-                    acc: mut pop_acc,
-                    val: pop_val,
-                } => {
-                    if let ValState::Start = pop_val {
-                        pop_acc.push(value);
-                        self.cur = State::Arr {
-                            acc: pop_acc,
-                            val: ValState::AteValue,
-                        }
-                    } else {
-                        // error - we expect value
-                    }
+                ExpectingValue::Arr { acc: mut pop_acc } => {
+                    pop_acc.push(value);
+                    self.expectation = Expectation::CommaOrClosedBracket { acc: pop_acc };
                 }
-                State::Start => todo!(),
-                State::SimpleLiteral(_) => todo!(),
-
             },
             None => {
-                // have one primitive literal
-                self.cur = State::SimpleLiteral(value);
-            },
+                self.expectation = Expectation::EndOfTokens(value);
+            }
         }
     }
 }
-//     fn array_to_value(&mut self, acc: Vec<Value>) {
-//         if acc.is_empty() {
-//             match self.stack.pop() {
-//                 Some(popped) => match popped {
-//                     State::Obj {
-//                         acc: mut pop_acc,
-//                         kv: pop_kv,
-//                     } => {
-//                         if let KvState::AteColon(key_colon) = pop_kv {
-//                             pop_acc.insert(key_colon, Value::Array(acc));
-//                             self.cur = State::Obj {
-//                                 acc: pop_acc,
-//                                 kv: KvState::AteValue,
-//                             };
-//                         } else {
-//                             unreachable!()
-//                         }
-//                     }
 
-//                     State::Start => {
-//                         unreachable!();
-//                     }
-//                 },
-//                 None => {
-//                     // maybe just "[]"
-//                 }
-//             }
-//         } else {
-//             // error
-//             // [1, ]
-//         }
-//     }
-// }
+#[cfg(test)]
+mod test {
+    #[track_caller]
+    fn assert_snapshot(string: &str, expected: &str) {
+        let json_value = crate::parse(string);
+
+        match json_value {
+            Ok(value) => {
+                let mut actual = format!("{value:?}");
+                if actual.len() > 60 {
+                    actual = format!("{value:#?}");
+                }
+                assert_eq!(actual, expected);
+            }
+            Err(error) => {
+                assert_eq!(format!("{error}"), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn smoke_ok() {
+        assert_snapshot(
+            r#"{"mare": true, "snowpity": "legendary", "cute_level": 999}"#,
+            r#"Object({"cute_level": Number(999.0), "mare": Bool(true), "snowpity": String("legendary")})"#,
+        );
+    }
+
+    #[test]
+    fn smoke_error() {
+        assert_snapshot(
+            r#"{"mare": true, "snowpity":"#,
+            "Expected value after key \"snowpity\" but the string ended unexpectedly | ExpectedValue"
+        );
+    }
+
+    #[test]
+    fn empty_complex() {
+        assert_snapshot("{}", "Object({})");
+        assert_snapshot("[]", "Array([])");
+        assert_snapshot(
+            "[[[[[[]]]]]]",
+            "Array([Array([Array([Array([Array([Array([])])])])])])",
+        );
+        assert_snapshot(
+            r#"{"a":{},"b":{},"c":{}}"#,
+            r#"Object({"a": Object({}), "b": Object({}), "c": Object({})})"#,
+        );
+        assert_snapshot("[{}, []]", "Array([Object({}), Array([])])");
+        assert_snapshot(
+            r#"{"arr": [], "obj": {}}"#,
+            r#"Object({"arr": Array([]), "obj": Object({})})"#,
+        );
+    }
+
+    #[test]
+    fn derpibooru() {
+        let response = std::fs::read_to_string("./src/derpibooru_example_response.json").unwrap();
+        let actual = crate::texts::derpibooru_deserealized();
+        assert_snapshot(&response, &actual);
+    }
+
+    #[test]
+    fn menu() {
+        let response = crate::texts::menu_string();
+        let actual = crate::texts::menu_deserealized();
+        // timer start
+
+        assert_snapshot(&response, &actual);
+        // timer end
+        // print spended time
+    }
+
+    #[test]
+    fn simple_literal() {
+        assert_snapshot("10", "Number(10.0)");
+        assert_snapshot("\"string\"", "String(\"string\")");
+        assert_snapshot("true", "Bool(true)");
+        assert_snapshot("false", "Bool(false)");
+        assert_snapshot("null", "Null");
+    }
+
+    #[test]
+    fn object_in_object() {
+        assert_snapshot(
+            r#"{"mare": {"name": "fluttershy"}}"#,
+            r#"Object({"mare": Object({"name": String("fluttershy")})})"#,
+        );
+    }
+
+    #[test]
+    fn object_in_array() {
+        assert_snapshot(
+            r#"[{"mare": true}]"#,
+            r#"Array([Object({"mare": Bool(true)})])"#,
+        );
+    }
+
+    #[test]
+    fn error_object() {
+        assert_snapshot(
+            r#"{""}"#,
+            r#"Expected colon after key "", but found closed curly unexpectedly | ExpectedColon"#
+        );
+
+        assert_snapshot(
+            r#"{"string"}"#,
+            r#"Expected colon after key "string", but found closed curly unexpectedly | ExpectedColon"#
+        );
+
+        assert_snapshot(
+            r#"{"string":}"#,
+            r#"Expected value after key "string" but found closed curly unexpectedly | ExpectedValue"#
+        );
+
+        assert_snapshot(
+            r#"{"string-invalid": bbb}"#,
+            r#"Expected value after key "string-invalid" found 'b' | Syntax"#
+        );
+
+        assert_snapshot(
+            r#"{"string-num": 10,}"#,
+            r#"Expected string but found trailing comma unexpectedly | TrailingComma"#
+        );
+
+        assert_snapshot(
+            r#"{"string-num": 10}{"#,
+            r#"Expected end of tokens, but found open curly unexpectedly | ExpectedEndOfFile"#
+        )
+    }
+
+    #[test]
+    fn error_arr() {
+        assert_snapshot(
+            r#"[,]"#,
+            r#"Expected array value but found comma unexpectedly | ExpectedValue"#
+        );
+
+        assert_snapshot(
+            r#"[10,]]"#,
+            r#"Expected array value but found closed bracket unexpectedly | ExpectedValue"#
+        );
+
+        assert_snapshot(
+            r#"[10,{]}]"#,
+            r#"Expected string or closing curly, but found closed bracket unexpectedly | ExpectedKey"#
+        );
+
+        assert_snapshot(
+            r#"["string""#,
+            r#"Expected comma or closed bracket, but the string ended unexpectedly | ExpectedCommaOrClosedBracket"#
+        );
+
+        assert_snapshot(
+            r#"["string": 10]"#,
+            r#"Expected comma or closed bracket, but found colon unexpectedly | ExpectedCommaOrClosedBracket"#
+        );
+    }
+
+    #[test]
+    fn error_string() {
+        assert_snapshot(
+            r#""string1"#,
+            r#"Expected JSON object, array or literal - missing double quote in: "string1" | Syntax"#
+        );
+
+        assert_snapshot(
+            r#""string2\""#,
+            r#"Expected JSON object, array or literal - missing double quote in: "string2"" | Syntax"#
+        );
+    }
+
+    #[test]
+    fn error_string_unicode() {
+        assert_snapshot(
+            r#""mare \u2764""#,
+            r#"String("mare ❤")"#
+        );
+    }
+}
 
 // fn iterate_slice(slice: &[usize]) {
 //     match slice {

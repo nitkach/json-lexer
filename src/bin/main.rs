@@ -1,10 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
-
-use std::io;
-use std::io::prelude::*;
-use std::fs::File;
-
 fn main() {
-
+    let path = std::env::current_dir().unwrap();
+    println!("The current directory is {}", path.display());
 }
-// echo $?
