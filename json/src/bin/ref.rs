@@ -1,5 +1,4 @@
 fn main() {
-
     println!("{:?}", 'ૌ' as u32);
     println!("{:?}", '❤' as u32);
     println!("{:?}", char::from_u32(0x2764));

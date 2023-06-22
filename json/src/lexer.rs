@@ -1,7 +1,5 @@
 mod cursor;
 
-use std::ops::Mul;
-
 use cursor::Cursor;
 
 #[derive(Debug)]
@@ -18,13 +16,9 @@ impl Token {
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum TokenKind {
-    // Value
     String(String),
-    // Value
     Number(f64),
-    // Value
     True,
-    // Value
     False,
 
     // Not Value
@@ -48,14 +42,11 @@ pub(crate) enum TokenKind {
     Null,
 
     Invalid(TokenizeError),
-
-
 }
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum TokenizeError {
     MetEndOfFile,
-
 
     InvalidUnicode(String),
     MissingDoubleQuote(String),
@@ -239,7 +230,7 @@ impl Cursor<'_> {
                     let unescaped = match char {
                         '"' => '"',
                         '\\' => '\\',
-                        '/' => '/', // solidus: '\/'
+                        '/' => '/',        // solidus: '\/'
                         'b' => '\u{232B}', // backspace
                         'f' => '\u{000C}', // formfeed
                         'n' => '\n',
@@ -254,12 +245,14 @@ impl Cursor<'_> {
                                 };
 
                                 if !char.is_ascii_hexdigit() {
-                                    return TokenKind::Invalid(TokenizeError::InvalidUnicodeChar(char));
+                                    return TokenKind::Invalid(TokenizeError::InvalidUnicodeChar(
+                                        char,
+                                    ));
                                 }
 
                                 buf.push(char);
                                 self.eat_char();
-                            };
+                            }
 
                             let Ok(unicode) = u32::from_str_radix(&buf, 16) else {
                                 return TokenKind::Invalid(TokenizeError::InvalidUnicode(buf))
@@ -269,7 +262,7 @@ impl Cursor<'_> {
                                 return TokenKind::Invalid(TokenizeError::InvalidUnicode(buf))
                             };
                             unicode_char
-                        },
+                        }
                         _ => return TokenKind::Invalid(TokenizeError::NoSuchEscapeSymbol(char)),
                     };
                     context.string.push(unescaped);

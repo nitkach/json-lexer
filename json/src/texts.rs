@@ -1,5 +1,5 @@
 pub(crate) fn derpibooru_deserealized() -> String {
-r##"Object(
+    r##"Object(
     {
         "image": Object(
             {
@@ -239,7 +239,7 @@ r##"Object(
 }
 
 pub(crate) fn menu_string() -> String {
-r##"{"menu": {
+    r##"{"menu": {
 "id": "file",
 "value": "File",
 "popup": {
@@ -250,11 +250,12 @@ r##"{"menu": {
     ]
 }
 }}
-"##.to_owned()
+"##
+    .to_owned()
 }
 
 pub(crate) fn menu_deserealized() -> String {
-r##"Object(
+    r##"Object(
     {
         "menu": Object(
             {
@@ -305,5 +306,6 @@ r##"Object(
             },
         ),
     },
-)"##.to_owned()
+)"##
+    .to_owned()
 }
