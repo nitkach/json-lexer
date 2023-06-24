@@ -2,3 +2,6 @@
 ideas.md
 /benches
 /src/derpibooru_example_response.json
+*.json
+*.txt
+/binary
