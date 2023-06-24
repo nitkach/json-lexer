@@ -15,23 +15,33 @@ struct JsonOutput {
     // urls: Vec<String>
 }
 
+#[derive(clap::ValueEnum, Clone)]
+enum ScoreMode {
+    Max,
+    Min,
+}
+
 #[derive(clap::Subcommand)]
 enum Command {
-    TagsPopularity{
-        #[clap(short, default_value_t = 10)]
+    TagsPopularity {
+        #[clap(long, default_value_t = 10)]
         tags_count: usize,
 
-        #[clap(short)]
-        is_reversed: bool
+        #[clap(long)]
+        reversed: bool,
     },
     Size,
-    SearchByTag{
-        tag: String
+    Score {
+        #[arg(value_enum)]
+        mode: Option<ScoreMode>,
+    },
+    SearchByTag {
+        tag: String,
     },
     SearchAnimated,
-    SearchByScore{
-        score: i32
-    }
+    SearchByScore {
+        score: i32,
+    },
 }
 
 // #TODO
@@ -55,10 +65,10 @@ struct Response {
 #[derive(Debug, Deserialize)]
 struct Image {
     tags: Vec<String>,
-    size: usize,
+    size: i32,
     view_url: String,
     animated: bool,
-    score: i32
+    score: i32,
 }
 
 #[derive(Parser)]
@@ -74,44 +84,108 @@ fn try_main() -> Result<(), Box<dyn Error>> {
     let derpi_data = serde_json::from_str::<Response>(&fs::read_to_string(args.path)?)?;
 
     match args.command {
-        Command::TagsPopularity { tags_count: limit, is_reversed } => {
+        Command::TagsPopularity {
+            tags_count: limit,
+            reversed: is_reversed,
+        } => {
             sort_by_popularity(derpi_data, limit, is_reversed)?;
-        },
+        }
         Command::Size => {
-            calculate_size(derpi_data);
-        },
+            // 64536189
+            // println!("{}", sum(derpi_data, get_size));
+            // 64536189
+            println!("{}", fold(derpi_data, 0, size_addition));
+        }
+        Command::Score { mode } => {
+            // <MODE>  [possible values: max, min]
+            // [MODE]  [possible values: max, min]
+            match mode {
+                Some(ScoreMode::Max) => {
+                    println!("{}", comparison(derpi_data, max, get_score)?);
+                }
+                Some(ScoreMode::Min) => {
+                    println!("{}", comparison(derpi_data, min, get_score)?);
+                }
+                None => {
+                    println!("{}", fold(derpi_data, 0, score_addition))
+                }
+            }
+        }
         Command::SearchByTag { tag } => {
             search_by_tag(derpi_data, tag)?;
-        },
+        }
         Command::SearchAnimated => {
-            search_animated(derpi_data)?;
-        },
-        Command::SearchByScore { score } => {
-            search_by_score(derpi_data, score)?
-        },
+            linear_search(derpi_data, get_animated)?;
+        }
+        Command::SearchByScore { score: _ } => {
+            linear_search(derpi_data, find_score)?;
+        }
     }
-
     Ok(())
 }
 
-fn search_by_score(derpi_data: Response, score: i32) -> Result<(), Box<dyn Error>> {
-    for image in derpi_data.images {
-        if image.score >= score {
-            println!("{}", image.view_url);
-            return Ok(())
-        }
-    }
-    Err("No such score found".to_owned().into())
+fn get_size(image: &Image) -> i32 {
+    image.size
 }
 
-fn search_animated(derpi_data: Response) -> Result<(), Box<dyn Error>> {
+fn get_score(image: &Image) -> i32 {
+    image.score
+}
+
+fn get_animated(image: &Image) -> bool {
+    image.animated
+}
+
+fn find_score(image: &Image) -> bool {
+    image.score >= 30
+}
+
+fn max(a: i32, b: i32) -> bool {
+    a > b
+}
+
+fn min(a: i32, b: i32) -> bool {
+    a < b
+}
+
+// unite fn max and fn min by using callback fn cmp?
+fn comparison(
+    derpi_data: Response,
+    compare: fn(i32, i32) -> bool,
+    get_field: fn(&Image) -> i32,
+) -> Result<i32, Box<dyn Error>> {
+    let mut extremum: Option<i32> = None;
     for image in derpi_data.images {
-        if image.animated {
+        // match max: Some(max).cmp(get_field(...)) | None: max = Some(get_field(...))
+        let maybe_extremum = get_field(&image);
+        match extremum {
+            Some(value) => {
+                if compare(maybe_extremum, value) {
+                    extremum = Some(maybe_extremum);
+                }
+            }
+            None => {
+                extremum = Some(maybe_extremum);
+            }
+        }
+    }
+    match extremum {
+        Some(max) => Ok(max),
+        None => return Err("Empty json".to_owned().into()),
+    }
+}
+
+fn linear_search(
+    derpi_data: Response,
+    condition: fn(&Image) -> bool,
+) -> Result<(), Box<dyn Error>> {
+    for image in derpi_data.images {
+        if condition(&image) {
             println!("{}", image.view_url);
             return Ok(());
         }
     }
-    Err("No animated images found".to_owned().into())
+    Err("Matching image not found".to_owned().into())
 }
 
 fn search_by_tag(derpi_data: Response, target: String) -> Result<(), Box<dyn Error>> {
@@ -119,36 +193,60 @@ fn search_by_tag(derpi_data: Response, target: String) -> Result<(), Box<dyn Err
         for tag in image.tags {
             if tag == target {
                 println!("{}", image.view_url);
-                return Ok(())
+                return Ok(());
             }
         }
     }
     Err("Tag not found".to_owned().into())
 }
 
-fn calculate_size(derpi_data: Response) {
-    let mut size: usize = 0;
-    for image in &derpi_data.images {
-        size += image.size / 1024;
-    }
-
-    println!("{size}");
+fn size_addition(acc: i32, image: Image) -> i32 {
+    acc + image.size
 }
 
-fn sort_by_popularity(derpi_data: Response, limit: usize, is_reversed: bool) -> Result<(), Box<dyn Error>> {
-    let mut tags_frequency = BTreeMap::<String, usize>::new();
-    for image in &derpi_data.images {
-        for tag in &image.tags {
-            match tags_frequency.entry(tag.clone()) {
-                Entry::Vacant(vacant_entry) => {
-                    vacant_entry.insert(1);
-                }
-                Entry::Occupied(occupied_entry) => {
-                    *occupied_entry.into_mut() += 1;
-                }
+fn size_product(acc: i32, image: Image) -> i32 {
+    acc * image.size
+}
+
+fn score_addition(acc: i32, image: Image) -> i32 {
+    acc + image.score
+}
+
+fn score_product(acc: i32, image: Image) -> i32 {
+    acc * image.score
+}
+
+fn fold_tags(mut tags_frequency: BTreeMap<String, usize>, image: Image) -> BTreeMap<String, usize> {
+    for tag in &image.tags {
+        match tags_frequency.entry(tag.clone()) {
+            Entry::Vacant(vacant_entry) => {
+                vacant_entry.insert(1);
+            }
+            Entry::Occupied(occupied_entry) => {
+                *occupied_entry.into_mut() += 1;
             }
         }
     }
+    tags_frequency
+}
+
+fn fold<T>(derpi_data: Response, initial: T, operation: fn(acc: T, image: Image) -> T) -> T {
+    let mut acc = initial;
+    for image in derpi_data.images {
+        acc = operation(acc, image);
+    }
+    acc
+}
+
+fn sort_by_popularity(
+    derpi_data: Response,
+    limit: usize,
+    is_reversed: bool,
+) -> Result<(), Box<dyn Error>> {
+    let mut tags_frequency = BTreeMap::<String, usize>::new();
+
+    tags_frequency = fold(derpi_data, tags_frequency, fold_tags);
+
     let mut tags_count: Vec<(usize, String)> = Vec::new();
     for (tag, count) in tags_frequency {
         tags_count.push((count, tag));
