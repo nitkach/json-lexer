@@ -175,6 +175,16 @@ fn comparison(
     }
 }
 
+// impl Searchable for Foo
+// struct Foo
+
+// #[derive(Searchable)]
+// struct Bar
+
+trait Searchable {
+    fn condition(image: &Image) -> bool;
+}
+
 fn linear_search(
     derpi_data: Response,
     condition: fn(&Image) -> bool,
@@ -187,6 +197,7 @@ fn linear_search(
     }
     Err("Matching image not found".to_owned().into())
 }
+
 
 fn search_by_tag(derpi_data: Response, target: String) -> Result<(), Box<dyn Error>> {
     for image in derpi_data.images {
