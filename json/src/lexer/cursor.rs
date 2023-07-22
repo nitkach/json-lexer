@@ -27,19 +27,6 @@ impl<'a> Cursor<'a> {
         self.chars.clone().next()
     }
 
-    /// Peeks the second symbol from the input stream without consuming it.
-    pub(crate) fn peek_second(&self) -> Option<char> {
-        // `.next()` optimizes better than `.nth(1)`
-        let mut iter = self.chars.clone();
-        iter.next()?;
-        iter.next()
-    }
-
-    /// Returns amount of already consumed symbols.
-    pub(crate) fn token_len(&self) -> u32 {
-        (self.token_len_and_remaining - self.chars.as_str().len()) as u32
-    }
-
     /// Resets the number of bytes consumed to 0.
     pub(crate) fn reset_token_len(&mut self) {
         self.token_len_and_remaining = self.chars.as_str().len();

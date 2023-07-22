@@ -4,13 +4,12 @@ use cursor::Cursor;
 
 #[derive(Debug)]
 pub(crate) struct Token {
-    pub(crate) len: u32,
     pub(crate) kind: TokenKind,
 }
 
 impl Token {
-    fn new(kind: TokenKind, len: u32) -> Token {
-        Token { len, kind }
+    fn new(kind: TokenKind) -> Token {
+        Token { kind }
     }
 }
 
@@ -202,7 +201,7 @@ impl Cursor<'_> {
                 }
             }
         };
-        let res = Token::new(token_kind, self.token_len());
+        let res = Token::new(token_kind);
         self.reset_token_len();
         Some(res)
     }
@@ -385,35 +384,35 @@ mod tests {
     // create tests for state transition (for every match arm)
     #[test]
     fn smoke_number() {
-        assert_snapshot("-0", "2:Number(-0.0)");
-        // assert_snapshot("-1", "2:Number(-1.0)");
-        assert_snapshot("0.", "2:Invalid(MetEndOfFile)");
-        // assert_snapshot(".9", "2:Invalid");
-        assert_snapshot("10", "2:Number(10.0)");
-        assert_snapshot("1.1", "3:Number(1.1)");
-        assert_snapshot("0", "1:Number(0.0)");
+        assert_snapshot("-0", "Number(-0.0)");
+        // assert_snapshot("-1", "Number(-1.0)");
+        assert_snapshot("0.", "Invalid(MetEndOfFile)");
+        // assert_snapshot(".9", "Invalid");
+        assert_snapshot("10", "Number(10.0)");
+        assert_snapshot("1.1", "Number(1.1)");
+        assert_snapshot("0", "Number(0.0)");
 
-        assert_snapshot("10.250", "6:Number(10.25)");
-        assert_snapshot("-0.01", "5:Number(-0.01)");
-        assert_snapshot("-100.000001", "11:Number(-100.0)");
-        assert_snapshot("[100.200]", "1:OpenBracket,7:Number(100.2),1:ClosedBracket");
+        assert_snapshot("10.250", "Number(10.25)");
+        assert_snapshot("-0.01", "Number(-0.01)");
+        assert_snapshot("-100.000001", "Number(-100.0)");
+        assert_snapshot("[100.200]", "OpenBracket,Number(100.2),ClosedBracket");
         assert_snapshot(
             "1-00",
-            "1:Number(1.0),2:Invalid(ExpectedDot('0')),1:Number(0.0)",
+            "Number(1.0),Invalid(ExpectedDot('0')),Number(0.0)",
         );
-        assert_snapshot("-201.102", "8:Number(-201.102)");
+        assert_snapshot("-201.102", "Number(-201.102)");
     }
 
     #[test]
     fn smoke_string() {
-        assert_snapshot("\"abcd\"", "6:String(\"abcd\")");
-        assert_snapshot("\"a\\\"bc\\\"d\"", "10:String(\"a\\\"bc\\\"d\")"); // "a\"b\"c" -> a"b"c
-        assert_snapshot("\"ab\\ncd\"", "8:String(\"ab\\ncd\")");
-        assert_snapshot("\"ab\\tcd\"", "8:String(\"ab\\tcd\")");
-        assert_snapshot("\"ab\\\\cd\"", "8:String(\"ab\\\\cd\")");
-        assert_snapshot("\"ab\\rcd\"", "8:String(\"ab\\rcd\")");
+        assert_snapshot("\"abcd\"", "String(\"abcd\")");
+        assert_snapshot("\"a\\\"bc\\\"d\"", "String(\"a\\\"bc\\\"d\")"); // "a\"b\"c" -> a"b"c
+        assert_snapshot("\"ab\\ncd\"", "String(\"ab\\ncd\")");
+        assert_snapshot("\"ab\\tcd\"", "String(\"ab\\tcd\")");
+        assert_snapshot("\"ab\\\\cd\"", "String(\"ab\\\\cd\")");
+        assert_snapshot("\"ab\\rcd\"", "String(\"ab\\rcd\")");
 
-        assert_snapshot("\"abcd", "5:Invalid(MissingDoubleQuote)");
+        assert_snapshot("\"abcd", "Invalid(MissingDoubleQuote(\"abcd\"))");
     }
 
     #[track_caller]
@@ -423,7 +422,7 @@ mod tests {
         let mut actual = vec![];
 
         for elem in tokens {
-            let Token { len, mut kind } = elem;
+            let Token { mut kind } = elem;
 
             if let TokenKind::Number(num) = &mut kind {
                 *num = (*num * 1000.0).trunc() / 1000.0;
@@ -432,7 +431,7 @@ mod tests {
             //     TokenKind::Number(num) => TokenKind::Number(((num * 1000.0).trunc()) / 1000.0),
             //     _ => kind,
             // };
-            actual.push(format!("{len}:{kind:?}"));
+            actual.push(format!("{kind:?}"));
         }
 
         assert_eq!(actual.join(","), expected)

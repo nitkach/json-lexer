@@ -32,14 +32,18 @@ impl fmt::Display for ParsingError {
                     ExpectingValue::Obj { acc: _, key } => {
                         write!(f, "Expected value after key \"{key}\" ")?;
                     }
-                    ExpectingValue::Arr { acc: _ } => {
+                    ExpectingValue::Arr { acc } => {
                         write!(f, "Expected array value ")?;
+                        if acc.is_empty() {
+                            write!(f, "or closing bracket, ")?;
+                        }
                     }
                 },
                 None => {
                     write!(f, "Expected JSON object, array or literal - ")?;
                 }
             },
+            // Expected string after "Fluttershy" but found comma unexpectedly | ExpectedKey
             Expectation::Obj { acc, kv } => match kv {
                 KvState::Start => {
                     write!(f, "Expected string ")?;

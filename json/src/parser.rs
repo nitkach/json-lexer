@@ -1,4 +1,5 @@
 mod parsing_error_context;
+mod texts;
 
 pub(crate) use parsing_error_context::{ParsingError, ParsingErrorKind};
 use std::collections::BTreeMap;
@@ -332,14 +333,14 @@ mod test {
     #[test]
     fn derpibooru() {
         let response = std::fs::read_to_string("./json/src/derpibooru_example_response.json").unwrap();
-        let actual = crate::texts::derpibooru_deserealized();
+        let actual = super::texts::derpibooru_deserealized();
         assert_snapshot(&response, &actual);
     }
 
     #[test]
     fn menu() {
-        let response = crate::texts::menu_string();
-        let actual = crate::texts::menu_deserealized();
+        let response = super::texts::menu_string();
+        let actual = super::texts::menu_deserealized();
         // timer start
 
         assert_snapshot(&response, &actual);

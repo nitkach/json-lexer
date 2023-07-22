@@ -1,7 +1,6 @@
 pub mod colors_test;
 mod lexer;
 mod parser;
-mod texts;
 
 pub use parser::Value;
 use crate::parser::{ParsingError, ParsingContext};
