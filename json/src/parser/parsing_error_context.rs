@@ -1,4 +1,5 @@
 use std::fmt;
+use std::error::Error;
 
 // use super::{ParsingContext, ParsingError, Expectation, ExpectingValue};
 use crate::lexer::{TokenKind, TokenizeError};
@@ -9,8 +10,10 @@ pub struct ParsingError {
     pub(crate) error: ParsingErrorKind,
     pub(crate) context: ParsingContext,
     pub(crate) token_kind: Option<TokenKind>,
-    // pub(crate) char_index: u32,
+    pub(crate) position: Option<(usize, usize)>,
 }
+
+impl Error for ParsingError {}
 
 #[derive(Debug)]
 pub(crate) enum ParsingErrorKind {
@@ -107,7 +110,9 @@ impl fmt::Display for ParsingError {
                     Some(_) => write!(f, "BUG(Some({:?})) ", &self.token_kind)?,
                     None => write!(f, "BUG(None) ")?,
                 };
-                write!(f, "| Syntax")?;
+                if f.alternate() {
+                    write!(f, "(Syntax) ")?;
+                }
             }
 
             ParsingErrorKind::ExpectedValue => {
@@ -126,7 +131,10 @@ impl fmt::Display for ParsingError {
                     }
                     None => write!(f, "but the string ended ")?,
                 };
-                write!(f, "unexpectedly | ExpectedValue")?
+                write!(f, "unexpectedly ")?;
+                if f.alternate() {
+                    write!(f, "(ExpectedValue) ")?;
+                }
             }
 
             ParsingErrorKind::ExpectedKey => {
@@ -149,7 +157,10 @@ impl fmt::Display for ParsingError {
                     }
                     None => write!(f, "but the string ended ")?,
                 };
-                write!(f, "unexpectedly | ExpectedKey")?
+                write!(f, "unexpectedly ")?;
+                if f.alternate() {
+                    write!(f, "(ExpectedKey) ")?;
+                }
             }
             ParsingErrorKind::ExpectedEndOfFile => {
                 match &self.token_kind {
@@ -174,7 +185,10 @@ impl fmt::Display for ParsingError {
                     }
                     None => write!(f, "BUG(None) ")?,
                 };
-                write!(f, "unexpectedly | ExpectedEndOfFile")?
+                write!(f, "unexpectedly ")?;
+                if f.alternate() {
+                    write!(f, "(ExpectedEndOfFile) ")?;
+                }
             }
             ParsingErrorKind::ExpectedColon => {
                 match &self.token_kind {
@@ -198,7 +212,10 @@ impl fmt::Display for ParsingError {
                     }
                     None => write!(f, "but the string ended ")?,
                 };
-                write!(f, "unexpectedly | ExpectedColon")?
+                write!(f, "unexpectedly ")?;
+                if f.alternate() {
+                    write!(f, "(ExpectedColon) ")?;
+                }
             }
             ParsingErrorKind::TrailingComma => {
                 match &self.token_kind {
@@ -206,7 +223,10 @@ impl fmt::Display for ParsingError {
                     Some(_) => write!(f, "but found BUG({:?})", &self.token_kind)?,
                     None => write!(f, "BUG(None) ")?,
                 };
-                write!(f, "unexpectedly | TrailingComma")?;
+                write!(f, "unexpectedly ")?;
+                if f.alternate() {
+                    write!(f, "(TrailingComma) ")?;
+                }
             }
             ParsingErrorKind::ExpectedCommaOrClosedCurly => {
                 match &self.token_kind {
@@ -229,7 +249,10 @@ impl fmt::Display for ParsingError {
                     }
                     None => write!(f, "but the string ended ")?,
                 };
-                write!(f, "unexpectedly | ExpectedCommaOrClosedCurly")?;
+                write!(f, "unexpectedly ")?;
+                if f.alternate() {
+                    write!(f, "(ExpectedCommaOrClosedCurly) ")?;
+                }
             }
             ParsingErrorKind::ExpectedCommaOrClosedBracket => {
                 match &self.token_kind {
@@ -252,8 +275,20 @@ impl fmt::Display for ParsingError {
                     }
                     None => write!(f, "but the string ended ")?,
                 };
-                write!(f, "unexpectedly | ExpectedCommaOrClosedBracket")?;
+                write!(f, "unexpectedly ")?;
+                if f.alternate() {
+                    write!(f, "(ExpectedCommaOrClosedBracket) ")?;
+                }
             }
+        }
+
+        match self.position {
+            Some((line, column)) => {
+                write!(f, "at line {}, column {}", line, column)?;
+            },
+            None => {
+                write!(f, "at the end")?;
+            },
         }
         Ok(())
     }
