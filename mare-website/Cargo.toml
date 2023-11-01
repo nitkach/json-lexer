@@ -1,0 +1,18 @@
+[package]
+edition = "2021"
+name    = "mare-website"
+version = "0.1.0"
+
+[dependencies]
+cli-3 = { path = "E:\\dev\\json\\cli-3" }
+anyhow             = "1.0"
+axum               = { version = "0.6", features = ["headers", "macros", "form"] }
+dotenvy            = "0.15"
+futures            = "0.3"
+hyper              = "0.14"
+itertools          = "0.11"
+serde              = { version = "1.0", features = ["derive"] }
+sqlx               = "0.7"
+tokio              = { version = "1.0", features = ["rt-multi-thread", "macros", "fs"] }
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3" }
