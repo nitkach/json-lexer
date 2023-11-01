@@ -2,7 +2,7 @@
 // use serde_json::Value;
 
 fn main() {
-    let string = std::fs::read_to_string("./benches/.json").unwrap();
+    let string = std::fs::read_to_string("./benches/citm_catalog.json").unwrap();
 
     let now = std::time::Instant::now();
     json::parse(&string).unwrap();

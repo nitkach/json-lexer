@@ -18,6 +18,7 @@ impl fmt::Display for CliError {
     }
 }
 
+// TODO don't use println -> error!()
 #[derive(Debug)]
 pub struct Error {
     backtrace: Backtrace,
@@ -34,6 +35,15 @@ pub(crate) enum ErrorKind {
     Fatal {
         message: String,
     },
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.kind {
+            ErrorKind::Deserialization { source, .. } => Some(source.as_ref()),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Error {

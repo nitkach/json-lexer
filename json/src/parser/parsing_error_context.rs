@@ -1,5 +1,5 @@
-use std::fmt;
 use std::error::Error;
+use std::fmt;
 
 // use super::{ParsingContext, ParsingError, Expectation, ExpectingValue};
 use crate::lexer::{TokenKind, TokenizeError};
@@ -285,10 +285,10 @@ impl fmt::Display for ParsingError {
         match self.position {
             Some((line, column)) => {
                 write!(f, "at line {}, column {}", line, column)?;
-            },
+            }
             None => {
                 write!(f, "at the end")?;
-            },
+            }
         }
         Ok(())
     }

@@ -1,26 +1,28 @@
-use super::{RunCommand, CommandContext};
+use log::info;
+
+use super::{CommandContext, RunCommand};
 use crate::error::Error;
-use crate::repository::Record;
+use crate::repository::{Breed, RecordData};
 
 #[derive(Debug, clap::Args)]
 pub(crate) struct AddCommand {
     #[clap(long)]
     name: String,
 
-    #[arg(long, value_enum)]
-    breed: String,
+    #[clap(long, value_enum)]
+    breed: Breed,
 }
 
 impl RunCommand for AddCommand {
     fn run(self: Box<Self>, mut context: CommandContext) -> Result<(), Error> {
-        let id = context.repo.add(Record {
+        let id = context.repo.add(RecordData {
             name: self.name,
             breed: self.breed,
         })?;
 
         context.repo.commit()?;
 
-        println!("Added new record with id {id}");
+        info!("Added new record with id {id}");
 
         Ok(())
     }

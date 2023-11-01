@@ -97,10 +97,14 @@ fn try_main() -> Result<(), Box<dyn Error>> {
             sort_by_popularity(derpi_data, limit, is_reversed)?;
         }
         Command::Size => {
-            // 64536189
-            // println!("{}", sum(derpi_data, get_size));
-            // 64536189
-            println!("{}", fold(derpi_data, 0, size_addition));
+            println!(
+                "{}",
+                derpi_data
+                    .images
+                    .iter()
+                    .map(|image| image.size)
+                    .sum::<i32>()
+            );
         }
         Command::Score { mode } => {
             // <MODE>  [possible values: max, min]
@@ -113,7 +117,13 @@ fn try_main() -> Result<(), Box<dyn Error>> {
                     println!("{}", comparison(derpi_data, min, get_score)?);
                 }
                 None => {
-                    println!("{}", fold(derpi_data, 0, score_addition))
+                    // 59498
+                    // 59498
+                    let score: i32 = derpi_data.images.iter().map(|image| image.score).sum();
+
+                    println!("{}", score);
+                    // 59498
+                    // println!("{}", fold(derpi_data, 0, score_addition))
                 }
             }
         }
@@ -222,112 +232,107 @@ fn search_by_tag(derpi_data: Response, target: String) -> Result<(), Box<dyn Err
     Err("Tag not found".to_owned().into())
 }
 
-fn size_addition(acc: i32, image: Image) -> i32 {
-    acc + image.size
-}
+// fn size_addition(acc: i32, image: Image) -> i32 {
+//     acc + image.size
+// }
 
 // fn size_product(acc: i32, image: Image) -> i32 {
 //     acc * image.size
 // }
 
-fn score_addition(acc: i32, image: Image) -> i32 {
-    acc + image.score
-}
+// fn score_addition(acc: i32, image: Image) -> i32 {
+//     acc + image.score
+// }
 
 // fn score_product(acc: i32, image: Image) -> i32 {
 //     acc * image.score
 // }
 
-fn fold_tags(mut tags_frequency: BTreeMap<String, usize>, image: Image) -> BTreeMap<String, usize> {
-    for tag in &image.tags {
-        match tags_frequency.entry(tag.clone()) {
-            Entry::Vacant(vacant_entry) => {
-                vacant_entry.insert(1);
-            }
-            Entry::Occupied(occupied_entry) => {
-                *occupied_entry.into_mut() += 1;
-            }
-        }
-    }
-    tags_frequency
-}
+// fn fold_tags(mut tags_frequency: BTreeMap<String, usize>, image: Image) -> BTreeMap<String, usize> {
+//     for tag in &image.tags {
+//         match tags_frequency.entry(tag.clone()) {
+//             Entry::Vacant(vacant_entry) => {
+//                 vacant_entry.insert(1);
+//             }
+//             Entry::Occupied(occupied_entry) => {
+//                 *occupied_entry.into_mut() += 1;
+//             }
+//         }
+//     }
+//     tags_frequency
+// }
 
-fn fold<T>(derpi_data: Response, initial: T, operation: fn(acc: T, image: Image) -> T) -> T {
-    let mut acc = initial;
-    for image in derpi_data.images {
-        acc = operation(acc, image);
-    }
-    acc
-}
+// fn fold<T>(derpi_data: Response, initial: T, operation: fn(acc: T, image: Image) -> T) -> T {
+//     let mut acc = initial;
+//     for image in derpi_data.images {
+//         acc = operation(acc, image);
+//     }
+//     acc
+// }
 
 fn sort_by_popularity(
     derpi_data: Response,
     limit: usize,
     reversed: bool,
 ) -> Result<(), Box<dyn Error>> {
-    // let tags_frequency: BTreeMap<String, usize> =
-    //     derpi_data
-    //         .images
-    //         .into_iter()
-    //         .fold(BTreeMap::<String, usize>::new(), |mut acc, image| {
-    //             // for tag in &image.tags {
-    //             //     match acc.entry(tag.clone()) {
-    //             //         Entry::Vacant(vacant_entry) => {
-    //             //             vacant_entry.insert(1);
-    //             //         }
-    //             //         Entry::Occupied(occupied_entry) => {
-    //             //             *occupied_entry.into_mut() += 1;
-    //             //         }
-    //             //     }
-    //             // };
-    //             // acc
-    //             let _ = image
-    //                 .tags
-    //                 .into_iter()
-    //                 .map(|tag| {
-    //                     match acc.entry(tag.clone()) {
-    //                         Entry::Vacant(vacant_entry) => {
-    //                             vacant_entry.insert(1);
-    //                         }
-    //                         Entry::Occupied(occupied_entry) => {
-    //                             *occupied_entry.into_mut() += 1;
-    //                         }
-    //                     };
-    //                     tag
-    //                 })
-    //                 .collect::<Vec<String>>();
-    //             acc
-    //         });
+    let tags_frequency: BTreeMap<String, usize> =
+        derpi_data
+            .images
+            .into_iter()
+            .fold(BTreeMap::<String, usize>::new(), |mut acc, image| {
+                for tag in &image.tags {
+                    match acc.entry(tag.clone()) {
+                        Entry::Vacant(vacant_entry) => {
+                            vacant_entry.insert(1);
+                        }
+                        Entry::Occupied(occupied_entry) => {
+                            *occupied_entry.into_mut() += 1;
+                        }
+                    }
+                }
+                acc
+                // image.tags.into_iter().for_each(|tag| {
+                //     match acc.entry(tag.clone()) {
+                //         Entry::Vacant(vacant_entry) => {
+                //             vacant_entry.insert(1);
+                //         }
+                //         Entry::Occupied(occupied_entry) => {
+                //             *occupied_entry.into_mut() += 1;
+                //         }
+                //     };
+                // });
+                // acc
+            });
 
-    let mut tags_frequency = BTreeMap::<String, usize>::new();
-    tags_frequency = fold(derpi_data, tags_frequency, fold_tags);
+    // let mut tags_frequency = BTreeMap::<String, usize>::new();
+    // tags_frequency = fold(derpi_data, tags_frequency, fold_tags);
 
-    // let mut tags_count: Vec<(usize, String)> = tags_frequency
-    //     .into_iter()
-    //     .map(|(tag, count)| (count, tag))
-    //     .collect();
+    let mut tags_count: Vec<(usize, String)> = tags_frequency
+        .into_iter()
+        .map(|(tag, count)| (count, tag))
+        .collect();
 
-    let mut tags_count: Vec<(usize, String)> = Vec::new();
-    for (tag, count) in tags_frequency {
-        tags_count.push((count, tag));
-    }
+    // let mut tags_count: Vec<(usize, String)> = Vec::new();
+    // for (tag, count) in tags_frequency {
+    //     tags_count.push((count, tag));
+    // }
 
     tags_count.sort_unstable();
     if !reversed {
         tags_count.reverse();
     }
 
-    // let ranged_tags_count: Vec<(usize, String)> = tags_count.into_iter().take(limit).collect();
+    let ranged_tags_count: Vec<(usize, String)> = tags_count.into_iter().take(limit).collect();
 
-    let mut count = 0;
-    let mut ranged_tags_count = Vec::new();
-    for elem in tags_count {
-        if count >= limit {
-            break;
-        }
-        ranged_tags_count.push(elem);
-        count += 1;
-    }
+    // let mut count = 0;
+    // let mut ranged_tags_count = Vec::new();
+    // for elem in tags_count {
+    //     if count >= limit {
+    //         break;
+    //     }
+    //     ranged_tags_count.push(elem);
+    //     count += 1;
+    // }
 
     let json = serde_json::to_string_pretty(&JsonOutput {
         tags_count: ranged_tags_count,

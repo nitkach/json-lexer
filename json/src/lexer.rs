@@ -402,8 +402,14 @@ mod tests {
         assert_snapshot("10.250", "{Number(10.25)|L1:C6}");
         assert_snapshot("-0.01", "{Number(-0.01)|L1:C5}");
         assert_snapshot("-100.000001", "{Number(-100.0)|L1:C11}");
-        assert_snapshot("[100.200]", "{OpenBracket|L1:C1},{Number(100.2)|L1:C8},{ClosedBracket|L1:C9}");
-        assert_snapshot("1-00", "{Number(1.0)|L1:C1},{Invalid(ExpectedDot('0'))|L1:C3},{Number(0.0)|L1:C4}");
+        assert_snapshot(
+            "[100.200]",
+            "{OpenBracket|L1:C1},{Number(100.2)|L1:C8},{ClosedBracket|L1:C9}",
+        );
+        assert_snapshot(
+            "1-00",
+            "{Number(1.0)|L1:C1},{Invalid(ExpectedDot('0'))|L1:C3},{Number(0.0)|L1:C4}",
+        );
         assert_snapshot("-201.102", "{Number(-201.102)|L1:C8}");
     }
 

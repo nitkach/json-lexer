@@ -2,8 +2,8 @@ pub mod colors_test;
 mod lexer;
 mod parser;
 
+use crate::parser::{ParsingContext, ParsingError};
 pub use parser::Value;
-use crate::parser::{ParsingError, ParsingContext};
 
 #[cfg(test)]
 #[macro_use]

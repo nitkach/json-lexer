@@ -1,3 +1,5 @@
+use log::info;
+
 use super::{CommandContext, RunCommand};
 use crate::error::Error;
 
@@ -8,17 +10,15 @@ pub(crate) struct GetCommand {
 
 impl RunCommand for GetCommand {
     fn run(self: Box<Self>, context: CommandContext) -> Result<(), Error> {
-        match context.repo.get(&self.id) {
-            Some(record) => {
-                println!(
-                    "Found record name: {}, breed: {}",
-                    record.name, record.breed
-                );
-            }
-            None => {
-                return Err(Error::fatal(format!("No record found with id {}", self.id)));
-            }
-        }
+        let record = context
+            .repo
+            .get(&self.id)
+            .ok_or_else(|| Error::fatal(format!("No record found with id {}", self.id)))?;
+
+        info!(
+            "Found record name: {}, breed: {}",
+            record.name, record.breed
+        );
 
         Ok(())
     }

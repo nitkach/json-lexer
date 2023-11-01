@@ -1,7 +1,8 @@
 mod add;
 mod get;
-mod remove;
 mod list;
+mod projection;
+mod remove;
 
 use crate::error::{CliError, Error};
 use crate::repository::Repository;
@@ -37,13 +38,10 @@ enum ArgsKind {
 impl Args {
     pub(crate) fn run(self) -> Result<(), CliError> {
         let verbose = self.verbose;
-        match self.run_imp() {
-            Ok(()) => Ok(()),
-            Err(err) => Err(CliError {
-                inner: err,
-                verbose,
-            }),
-        }
+        self.run_imp().map_err(|err| CliError {
+            inner: err,
+            verbose,
+        })
     }
 
     fn run_imp(self) -> Result<(), Error> {

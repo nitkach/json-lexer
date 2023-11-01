@@ -30,7 +30,7 @@ fn smoke_ok() {
 fn smoke_error() {
     assert_snapshot(
         r#"{"mare": true, "snowpity":"#,
-        r#"Expected value after key "snowpity" but the string ended unexpectedly (ExpectedValue) at the end"#
+        r#"Expected value after key "snowpity" but the string ended unexpectedly (ExpectedValue) at the end"#,
     );
 }
 

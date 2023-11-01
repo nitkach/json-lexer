@@ -76,7 +76,12 @@ fn main() {
         },
         Ok(Sharpness::Dull),
     );
-    shave_the_yak(&mut Yak { fur: Some(Wool::Black) }, Err(ShaveError::DullBlade));
+    shave_the_yak(
+        &mut Yak {
+            fur: Some(Wool::Black),
+        },
+        Err(ShaveError::DullBlade),
+    );
     shave_the_yak(&mut Yak { fur: None }, Err(ShaveError::NoWool));
 
     // println!("{:?}", yak)
