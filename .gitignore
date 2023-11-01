@@ -5,3 +5,4 @@ ideas.md
 *.json
 *.txt
 /binary
+*.sqlite

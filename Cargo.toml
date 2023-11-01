@@ -1,2 +1,2 @@
 [workspace]
-members = ["json", "my-cli", "cli-2"]
+members = ["json", "my-cli", "cli-2", "cli-3", "mare-website"]
