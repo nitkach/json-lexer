@@ -1,0 +1,12 @@
++++ hello.html +++
+
+Hello, COMMON: {{ name }}, href: <a href="{{ name }}">mares</a>! You are {{ crate::MARES_COUNT }} mare!
+
+The mare limit is {{ crate::MARES_COUNT }}. (mares has no limit - just example)
+{% set value = 4 %}
+{% if value > crate::MARES_COUNT %}
+    {{- value }} is bigger than MARES_COUNT.
+{% else %}
+    {{- value }} is less than MARES_COUNT.
+{% endif -%}
+--- hello.html ---
