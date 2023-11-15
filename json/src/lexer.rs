@@ -214,8 +214,6 @@ impl Cursor<'_> {
     }
 
     fn eat_string(&mut self) -> TokenKind {
-        // BUG: json control symbols consider invalid and
-        // TODO: add other unescape symbols
         let mut context = StringContext::new();
         loop {
             let char = self.eat_char();

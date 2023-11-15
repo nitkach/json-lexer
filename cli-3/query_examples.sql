@@ -32,13 +32,15 @@
 -- from mares;
 -- where name > "Fluttershy";
 
--- explain query plan
-update mares
-set breed = 2
-where name = 'Fluttershy';
-returning name, breed
-
-
 -- delete from mares
 -- where id = 2
 -- returning name, breed;
+-- explain query plan
+
+-- select *
+-- from mares;
+
+update mares
+set breed = 1, name = '2 EDIT'
+where id = 44
+returning *

@@ -1,26 +1,25 @@
 use std::fmt::Display;
 
+use crate::error::{Error, ErrorKind};
+
 use clap::ValueEnum;
 use sqlx::SqlitePool;
 
-use crate::error::{Error, ErrorKind};
 
 #[derive(Debug)]
 pub struct Database {
-    data: SqlitePool,
+    pool: SqlitePool,
 }
 
 impl Drop for Database {
     fn drop(&mut self) {
-        tokio::task::block_in_place(move|| {
-            tokio::runtime::Handle::current().block_on(async move {
-                self.data.close().await
-            });
+        tokio::task::block_in_place(move || {
+            tokio::runtime::Handle::current().block_on(async move { self.pool.close().await });
         })
     }
 }
 
-// #[repr(i64)]
+#[repr(i64)]
 #[derive(Debug, Clone, ValueEnum, sqlx::Type)]
 pub(crate) enum Breed {
     Earth = 0,
@@ -85,7 +84,7 @@ impl Database {
             })
         })?;
 
-        Ok(Self { data: pool })
+        Ok(Self { pool })
     }
 
     pub async fn add(&mut self, record: RecordData) -> Result<i64, Error> {
@@ -101,7 +100,7 @@ impl Database {
         dbg!(&record.breed);
 
         let id = query
-            .execute(&self.data)
+            .execute(&self.pool)
             .await
             .map_err(|err| Error::fatal(err.to_string()))?;
 
@@ -120,7 +119,7 @@ impl Database {
         );
 
         let record = query
-            .fetch_optional(&self.data)
+            .fetch_optional(&self.pool)
             .await
             .map_err(|err| Error::fatal(err.to_string()))?;
 
@@ -139,7 +138,7 @@ impl Database {
         );
 
         let record = query
-            .fetch_optional(&self.data)
+            .fetch_optional(&self.pool)
             .await
             .map_err(|err| Error::fatal(err.to_string()))?;
 
@@ -156,7 +155,7 @@ impl Database {
         );
 
         let records = query
-            .fetch_all(&self.data)
+            .fetch_all(&self.pool)
             .await
             .map_err(|err| Error::fatal(err.to_string()))?;
 
