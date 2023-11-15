@@ -76,9 +76,7 @@ async fn delete_mare(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
     let Some(record) = pool.remove(id).await? else {
-        // FIXME
-        warn!("Record with id = {id} was not found, but a request has been received to delete it.");
-        // TODO ErrorCode: 404
+        warn!("Record with id = {id} was not found.");
         return Err(AppError::with_status_404(anyhow!("Cannot find record with {id} id.")));
     };
 
@@ -101,8 +99,7 @@ async fn get_mare(
 ) -> Result<impl IntoResponse, AppError> {
     let Some(mare) = pool.get(id).await? else {
         warn!("Record with id = {id} was not found.");
-        // TODO return HTML page ErrorCode: 404
-        return Err(anyhow!("{}", axum::http::StatusCode::NOT_FOUND).into());
+        return Err(AppError::with_status_404(anyhow!("Cannot find record with {id} id.")));
     };
 
     let html = GetMareTemplate {
@@ -147,9 +144,10 @@ async fn mare_image(
     let name = match pool.get(id).await? {
         Some(record) => record.name,
         None => {
-            // FIXME is warn necessary? is returning Err(anyhow!(StasusCode)) correct?
             warn!("Record with id = {id} was not found.");
-            return Err(anyhow!(axum::http::StatusCode::NOT_FOUND).into());
+            return Err(AppError::with_status_404(anyhow!(
+                "Cannot find record with {id} id."
+            )));
         }
     };
 
@@ -192,30 +190,28 @@ async fn edit_mare(
     Path(id): Path<i64>,
     form: Form<PonyData>,
 ) -> Result<impl IntoResponse, AppError> {
-    // let pony_data = form.0;
+    let pony_data = form.0;
 
     // // problem: if first user edit data, but not send it, this is problem
     // // fix: add timestamp_updated_at as field -> send to request to update
     // // if timestamp != timestamp of record -> problem
     // // optimistic concurrency
 
-    // // chrono::DateTime
+    // chrono::DateTime::
     // // sqlx feature to support Timestamp
 
     // // html: timestamp (when sended) - hidden form input
-    // let Some(record) = pool.set(id, pony_data).await? else {
-    //     return Err(anyhow!(axum::http::StatusCode::NOT_FOUND).into());
-    // };
+    let Some(record) = pool.set(id, &pony_data).await? else {
+        let message = format!(
+            "{}, the {} pony is not found is mares list :(",
+            pony_data.pony_name,
+            pony_data.breed
+        );
 
-    // info!("Successfully set ");
+        return Err(AppError::with_status_404(anyhow!(message))).into();
+    };
 
-    info!("edit_mare was invoked!");
+    info!("Successfully changed record with id = {id} to: \"{} | {}\"", pony_data.pony_name, pony_data.breed, );
 
-    dbg!(&form.0);
-
-    if id == 44 {
-        return Ok(axum::response::Html("Function returns ok!"));
-    }
-
-    Err(AppError::with_status_404(anyhow!("{}, the {} pony is not found is mares list :(", form.0.pony_name, form.0.breed)))
+    Ok(axum::response::Redirect::to("/"))
 }

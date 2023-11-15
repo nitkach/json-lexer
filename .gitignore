@@ -6,3 +6,5 @@ ideas.md
 *.txt
 /binary
 *.sqlite
+data.sqlite-shm
+data.sqlite-wal

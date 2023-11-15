@@ -87,7 +87,8 @@ impl Database {
         Ok(record)
     }
 
-    pub(crate) async fn set(&self, id: i64, data: PonyData) -> Result<Option<DatabaseRecord>> {
+    pub(crate) async fn set(&self, id: i64, data: &PonyData) -> Result<Option<DatabaseRecord>> {
+        // TODO return previous name
         let query = sqlx::query_as!(
             DatabaseRecord,
             r#"

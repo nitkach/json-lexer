@@ -14,7 +14,7 @@ pub(crate) enum Breed {
 impl Display for Breed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let breed = match self {
-            Breed::Earth => " Earth ",
+            Breed::Earth => "Earth",
             Breed::Pegasus => "Pegasus",
             Breed::Unicorn => "Unicorn",
         };

@@ -41,6 +41,6 @@
 -- from mares;
 
 update mares
-set breed = 1, name = '2 EDIT'
+set breed = 1, name = '3 EDIT'
 where id = 44
-returning *
+returning (select name from mares where id = 44)
