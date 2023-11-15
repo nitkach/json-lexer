@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+    <table>
+        <thead>
+            <th>Pony name</th>
+            <th>Breed</th>
+            <th></th>
+        </thead>
+        {% for pony in ponies %}
+        <tr>
+            <td><a href="/mares/{{ pony.id }}/image">{{ pony.name }}</a></td>
+
+            <td>{{ pony.breed }}</td>
+
+            <td>
+                <form method="get" action="/mares/{{ pony.id }}">
+                    <input type="submit" value="Edit">
+                </form>
+            </td>
+
+        </tr>
+        {% endfor %}
+    </table>
+
+    <form action="/mares" method="post">
+        <label for="pony_name">Pony name</label><br>
+        <input type="text" id="pony_name" name="pony_name" placeholder="Write pony name" value="Mare" /><br>
+
+        <label for="breed">Breed</label><br />
+        <select id="breed" name="breed">
+            <option value="earth">Earth</option>
+            <option value="pegasus">Pegasus</option>
+            <option value="unicorn">Unicorn</option>
+        </select>
+        <br />
+        <br />
+
+        <input type="submit" value="Click me to submit!" />
+    </form>
+</body>
+
+</html>

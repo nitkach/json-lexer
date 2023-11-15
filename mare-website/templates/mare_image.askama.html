@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+    <form method="get" action="/">
+        <input type="submit" value="Back to main page">
+    </form>
+    <form method="get" action="/mares/{{ pony_id }}/image">
+        <input type="submit" value="Give me new image!">
+    </form><br>
+
+    <a href="https://derpibooru.org/{{ image_id }}\">
+        <img src="{{ image }}" />
+    </a>
+
+</body>
+
+</html>

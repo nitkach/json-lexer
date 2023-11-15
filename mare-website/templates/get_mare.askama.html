@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+    <form action="/mares/{{ id }}/edit" method="post">
+        <table>
+            <thead>
+                <th>Pony name</th>
+                <th>Breed</th>
+                <th></th>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>
+                        <input type="text" id="pony_name" name="pony_name" placeholder="{{ name }}"
+                            value="{{ name }}" />
+                    </td>
+                    <td>
+                        <select id="breed" name="breed">
+                            <option value="earth" {% if breed==Breed::Earth %}selected {% endif %}>Earth</option>
+                            <option value="pegasus" {% if breed==Breed::Pegasus %}selected {% endif %}>Pegasus</option>
+                            <option value="unicorn" {% if breed==Breed::Unicorn %}selected {% endif %}>Unicorn</option>
+                        </select>
+                    <td>
+                        <input type="submit" value="Save" />
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </form>
+    <form method="post" action="/mares/{{ id }}/delete">
+        <input type="submit" value="Delete">
+</body>
+
+</html>
