@@ -5,7 +5,6 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Form, Router};
 use serde::Deserialize;
-use tracing::{info, warn};
 
 use crate::database::breed::Breed;
 use crate::database::{Database, DatabaseRecord};
@@ -50,23 +49,18 @@ async fn get_home(State(pool): State<Database>) -> Result<impl IntoResponse, App
 }
 
 #[derive(Deserialize, Debug)]
-pub(crate) struct PonyData {
-    pub(crate) pony_name: String,
+pub(crate) struct AddPonyForm {
+    pub(crate) name: String,
     pub(crate) breed: Breed,
 }
 
 async fn post_mares(
     State(pool): State<Database>,
-    form: Form<PonyData>,
+    form: Form<AddPonyForm>,
 ) -> Result<impl IntoResponse, AppError> {
     let form = form.0;
 
     let id = pool.add(&form).await?;
-
-    info!(
-        "Added new record: {id} | {} | {}",
-        form.breed, form.pony_name
-    );
 
     Ok(axum::response::Redirect::to("/"))
 }
@@ -76,11 +70,8 @@ async fn delete_mare(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
     let Some(record) = pool.remove(id).await? else {
-        warn!("Record with id = {id} was not found.");
         return Err(AppError::with_status_404(anyhow!("Cannot find record with {id} id.")));
     };
-
-    info!("Successfully deleted record: {record}");
 
     Ok(axum::response::Redirect::to("/"))
 }
@@ -91,6 +82,7 @@ struct GetMareTemplate {
     name: String,
     breed: Breed,
     id: i64,
+    modified_at: i64,
 }
 
 async fn get_mare(
@@ -98,7 +90,6 @@ async fn get_mare(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, AppError> {
     let Some(mare) = pool.get(id).await? else {
-        warn!("Record with id = {id} was not found.");
         return Err(AppError::with_status_404(anyhow!("Cannot find record with {id} id.")));
     };
 
@@ -106,9 +97,45 @@ async fn get_mare(
         name: mare.name,
         breed: mare.breed,
         id,
+        modified_at: mare.modified_at.timestamp(),
     };
 
     Ok(html)
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct EditPonyForm {
+    pub(crate) name: String,
+    pub(crate) breed: Breed,
+    pub(crate) modified_at: i64,
+}
+
+async fn edit_mare(
+    State(pool): State<Database>,
+    Path(id): Path<i64>,
+    form: Form<EditPonyForm>,
+) -> Result<impl IntoResponse, AppError> {
+    let pony_data = form.0;
+
+    // // problem: if first user edit data, but not send it, this is problem
+    // // fix: add timestamp_updated_at as field -> send to request to update
+    // // if timestamp != timestamp of record -> problem
+    // // optimistic concurrency
+
+    // chrono::DateTime::
+    // // sqlx feature to support Timestamp
+
+    // // html: timestamp (when sended) - hidden form input
+    // let Some(_) = pool.set(id, &pony_data).await? else
+    if !pool.set(id, &pony_data).await? {
+        let message =
+            "Unfortunately, it is impossible to save, since the mare's record has already changed.";
+
+        // TODO possible to direct user to the mare page with the data he specified
+        return Err(AppError::with_status_404(anyhow!(message))).into();
+    };
+
+    Ok(axum::response::Redirect::to("/"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -144,12 +171,13 @@ async fn mare_image(
     let name = match pool.get(id).await? {
         Some(record) => record.name,
         None => {
-            warn!("Record with id = {id} was not found.");
             return Err(AppError::with_status_404(anyhow!(
                 "Cannot find record with {id} id."
             )));
         }
     };
+
+    dbg!(&name);
 
     let client = reqwest::Client::builder()
         .user_agent(concat!(
@@ -159,7 +187,6 @@ async fn mare_image(
         ))
         .build()?;
 
-    // ?per_page=1&q=score.gte%3A100%2C{}%2Cpony%2Cmare%2C!irl&sf=random&sd=desc
     let tags = format!("score.gte:100, {name}, pony, mare, !irl");
     let request = client
         .get("https://derpibooru.org/api/v1/json/search/images")
@@ -171,8 +198,7 @@ async fn mare_image(
         Some(image) => image,
         None => {
             // let html = "Images not found.\n<a href=\"/\">Back to main page</a>.";
-            // return Ok(axum::response::Html(html.to_owned()));
-            todo!()
+            return Err(AppError::with_status_404(anyhow!("Cannot find images by \"{name}\" name."))).into();
         }
     };
 
@@ -183,35 +209,4 @@ async fn mare_image(
     };
 
     Ok(html)
-}
-
-async fn edit_mare(
-    State(pool): State<Database>,
-    Path(id): Path<i64>,
-    form: Form<PonyData>,
-) -> Result<impl IntoResponse, AppError> {
-    let pony_data = form.0;
-
-    // // problem: if first user edit data, but not send it, this is problem
-    // // fix: add timestamp_updated_at as field -> send to request to update
-    // // if timestamp != timestamp of record -> problem
-    // // optimistic concurrency
-
-    // chrono::DateTime::
-    // // sqlx feature to support Timestamp
-
-    // // html: timestamp (when sended) - hidden form input
-    let Some(record) = pool.set(id, &pony_data).await? else {
-        let message = format!(
-            "{}, the {} pony is not found is mares list :(",
-            pony_data.pony_name,
-            pony_data.breed
-        );
-
-        return Err(AppError::with_status_404(anyhow!(message))).into();
-    };
-
-    info!("Successfully changed record with id = {id} to: \"{} | {}\"", pony_data.pony_name, pony_data.breed, );
-
-    Ok(axum::response::Redirect::to("/"))
 }

@@ -3,8 +3,7 @@ use std::fmt::Display;
 use crate::error::{Error, ErrorKind};
 
 use clap::ValueEnum;
-use sqlx::SqlitePool;
-
+use sqlx::{query, SqlitePool};
 
 #[derive(Debug)]
 pub struct Database {
@@ -61,13 +60,19 @@ pub(crate) struct Record {
     pub(crate) id: i64,
     pub(crate) name: String,
     pub(crate) breed: Breed,
+    pub(crate) modified_at: chrono::NaiveDateTime,
 }
 
 impl Display for Record {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Record { name, id, breed } = self;
+        let Record {
+            name,
+            id,
+            breed,
+            modified_at,
+        } = self;
 
-        write!(f, "{id:4} | {breed} | {name}")
+        write!(f, "{id:4} | {breed} | {} | {name}", modified_at.timestamp())
     }
 }
 
@@ -90,11 +95,11 @@ impl Database {
     pub async fn add(&mut self, record: RecordData) -> Result<i64, Error> {
         let query = sqlx::query!(
             r#"
-            insert into mares (name, breed)
-            values (?1, ?2)
+            insert into mares (name, breed, modified_at)
+            values (?1, ?2, STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW'))
             "#,
             record.name,
-            record.breed
+            record.breed,
         );
 
         dbg!(&record.breed);
@@ -111,7 +116,7 @@ impl Database {
         let query = sqlx::query_as!(
             Record,
             r#"
-            select name as "name!", breed as "breed!", id as "id!"
+            select name as "name!", breed as "breed!", id as "id!", modified_at as "modified_at!"
             from mares
             where id = ?1
             "#,
@@ -132,7 +137,7 @@ impl Database {
             r#"
             delete from mares
             where id = ?1
-            returning name as "name!", breed as "breed!", id as "id!"
+            returning name as "name!", breed as "breed!", id as "id!", modified_at as "modified_at!"
             "#,
             id
         );
@@ -149,7 +154,7 @@ impl Database {
         let query = sqlx::query_as!(
             Record,
             r#"
-            select id as "id!", name as "name!", breed as "breed!"
+            select id as "id!", name as "name!", breed as "breed!", modified_at as "modified_at!"
             from mares
             "#
         );
@@ -160,5 +165,80 @@ impl Database {
             .map_err(|err| Error::fatal(err.to_string()))?;
 
         Ok(records)
+    }
+
+    pub(crate) async fn set(
+        &self,
+        id: i64,
+        name: Option<String>,
+        breed: Option<Breed>,
+    ) -> Result<Option<Record>, Error> {
+        let record = match (name, breed) {
+            (None, None) => {
+                return Err(Error::new(ErrorKind::NoValuesSpecified {
+                    message: "Please, specify what you want to change".to_owned(),
+                }))
+            }
+            (None, Some(breed)) => {
+                let query = sqlx::query_as!(
+                    Record,
+                    r#"
+                    update mares
+                    set breed = ?1, modified_at = STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')
+                    where id = ?2
+                    returning id as "id!", name as "name!", breed as "breed!", modified_at as "modified_at!"
+                    "#,
+                    breed,
+                    id
+                );
+                let record = query
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|err| Error::fatal(err.to_string()))?;
+
+                record
+            }
+            (Some(name), None) => {
+                let query = sqlx::query_as!(
+                    Record,
+                    r#"
+                    update mares
+                    set name = ?1, modified_at = STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')
+                    where id = ?2
+                    returning id as "id!", name as "name!", breed as "breed!", modified_at as "modified_at!"
+                    "#,
+                    name,
+                    id
+                );
+                let record = query
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|err| Error::fatal(err.to_string()))?;
+
+                record
+            }
+            (Some(name), Some(breed)) => {
+                let query = sqlx::query_as!(
+                    Record,
+                    r#"
+                    update mares
+                    set name = ?1, breed = ?2, modified_at = STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')
+                    where id = ?3
+                    returning id as "id!", name as "name!", breed as "breed!", modified_at as "modified_at!"
+                    "#,
+                    name,
+                    breed,
+                    id
+                );
+                let record = query
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|err| Error::fatal(err.to_string()))?;
+
+                record
+            }
+        };
+
+        Ok(record)
     }
 }

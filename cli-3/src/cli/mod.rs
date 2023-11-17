@@ -7,6 +7,7 @@ mod add;
 mod get;
 mod list;
 mod remove;
+mod set;
 
 #[derive(Debug)]
 pub(crate) struct CommandContext {
@@ -25,6 +26,7 @@ pub(crate) enum ArgsKind {
     Get(get::GetCommand),
     Remove(remove::RemoveCommand),
     List(list::ListCommand),
+    Set(set::SetCommand),
 }
 
 impl Args {
@@ -42,6 +44,7 @@ impl Args {
             ArgsKind::Get(command) => command.run(&context).await,
             ArgsKind::Remove(command) => command.run(&mut context).await,
             ArgsKind::List(command) => command.run(&context).await,
+            ArgsKind::Set(command) => command.run(&context).await,
         }
     }
 }

@@ -12,7 +12,7 @@
             <tbody>
                 <tr>
                     <td>
-                        <input type="text" id="pony_name" name="pony_name" placeholder="{{ name }}"
+                        <input type="text" id="name" name="name" placeholder="{{ name }}"
                             value="{{ name }}" />
                     </td>
                     <td>
@@ -22,14 +22,18 @@
                             <option value="unicorn" {% if breed==Breed::Unicorn %}selected {% endif %}>Unicorn</option>
                         </select>
                     <td>
+                        <input type="hidden" name="modified_at" value="{{ modified_at }}" />
                         <input type="submit" value="Save" />
                     </td>
                 </tr>
             </tbody>
         </table>
+        <br>
+        Modified_at at: {{ modified_at }}.<br>
     </form>
     <form method="post" action="/mares/{{ id }}/delete">
         <input type="submit" value="Delete">
+    </form>
 </body>
 
 </html>

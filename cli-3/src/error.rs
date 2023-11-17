@@ -18,14 +18,13 @@ pub struct Error {
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let string = match &self.kind {
+        match &self.kind {
             ErrorKind::Database { message, url } => {
-                format!("Failed to connect to database with url: {url}. {message}")
+                write!(f, "Failed to connect to database with url: {url}. {message}")
             }
-            ErrorKind::Fatal { message } => format!("{message}"),
-        };
-
-        f.write_str(&string)
+            ErrorKind::Fatal { message } => f.write_str(message),
+            ErrorKind::NoValuesSpecified { message } => f.write_str(message),
+        }
     }
 }
 
@@ -33,6 +32,7 @@ impl Display for Error {
 pub(crate) enum ErrorKind {
     Database { message: String, url: String },
     Fatal { message: String },
+    NoValuesSpecified { message: String }
 }
 
 impl Error {
