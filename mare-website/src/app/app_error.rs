@@ -1,26 +1,26 @@
 use askama::Template;
-use axum::response::{IntoResponse, Response};
+use axum::{response::{IntoResponse, Response}, http::StatusCode};
 
 #[derive(Debug, Template)]
 #[template(path = "error.askama.html")]
 struct ErrorTemplate {
-    code: hyper::StatusCode,
+    code: StatusCode,
     source: anyhow::Error,
 }
 
 pub(crate) struct AppError {
-    pub(crate) code: hyper::StatusCode,
+    pub(crate) code: StatusCode,
     pub(crate) source: anyhow::Error,
 }
 
 impl AppError {
-    pub(crate) fn new(code: hyper::StatusCode, source: anyhow::Error) -> Self {
+    pub(crate) fn new(code: StatusCode, source: anyhow::Error) -> Self {
         Self { source, code }
     }
 
     pub(crate) fn with_status_404(source: anyhow::Error) -> Self {
         Self {
-            code: hyper::StatusCode::NOT_FOUND,
+            code: StatusCode::NOT_FOUND,
             source,
         }
     }
@@ -42,7 +42,7 @@ where
 {
     fn from(err: E) -> Self {
         Self {
-            code: hyper::StatusCode::NOT_FOUND,
+            code: StatusCode::NOT_FOUND,
             source: err.into(),
         }
     }

@@ -2,8 +2,8 @@ use std::fmt::Display;
 
 use serde::Deserialize;
 
+#[repr(i32)]
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, sqlx::Type)]
-#[repr(i64)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Breed {
     Earth = 0,
@@ -23,13 +23,23 @@ impl Display for Breed {
     }
 }
 
-impl From<i64> for Breed {
-    fn from(value: i64) -> Self {
+impl From<i32> for Breed {
+    fn from(value: i32) -> Self {
         match value {
             0 => Breed::Earth,
             1 => Breed::Pegasus,
             2 => Breed::Unicorn,
             _ => unreachable!(),
+        }
+    }
+}
+
+impl From<Breed> for i32 {
+    fn from(value: Breed) -> Self {
+        match value {
+            Breed::Earth => 0,
+            Breed::Pegasus => 1,
+            Breed::Unicorn => 2,
         }
     }
 }

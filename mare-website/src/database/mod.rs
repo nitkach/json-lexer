@@ -1,12 +1,10 @@
-use std::{fmt::Display, str::FromStr};
-
 use anyhow::Result;
+use chrono::Utc;
 use log::{info, LevelFilter};
 use serde::Deserialize;
-use sqlx::{
-    sqlite::SqliteConnectOptions, ConnectOptions, Pool, Sqlite, SqliteConnection, SqlitePool,
-};
-use tracing::{instrument, Level, warn};
+use sqlx::{postgres::PgConnectOptions, ConnectOptions, PgPool};
+use tracing::{instrument, warn, Level};
+use url::{self, Url};
 
 use crate::app::{AddPonyForm, EditPonyForm};
 
@@ -17,58 +15,55 @@ pub(crate) struct DatabaseRecord {
     pub(crate) id: i64,
     pub(crate) name: String,
     pub(crate) breed: breed::Breed,
-    pub(crate) modified_at: chrono::NaiveDateTime,
+    pub(crate) modified_at: chrono::DateTime<Utc>,
 }
-
-// impl Display for DatabaseRecord {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         let DatabaseRecord {
-//             id,
-//             name,
-//             breed,
-//             modified_at,
-//         } = self;
-
-//         write!(f, "{id} | {breed} | {name}")
-//     }
-// }
 
 #[derive(Debug, Clone)]
 pub(crate) struct Database {
-    pool: SqlitePool,
+    pool: PgPool,
 }
 
 impl Database {
     #[instrument(level = Level::INFO)]
-    pub(crate) async fn new() -> Result<Self> {
-        let database_url = std::env::var("DATABASE_URL")?;
+    pub(crate) async fn init() -> Result<Self> {
+        // let database_url = "postgres://mare:mare@localhost/postgres";
 
-        let options = SqliteConnectOptions::from_str(&database_url)?
+        let database_url = Url::parse(&std::env::var("DATABASE_URL")?)?;
+
+        let options = PgConnectOptions::from_url(&database_url)?
+            // PgConnectOptions::new()
+            // .host("postgres")
+            // .port(5432)
+            // .database("mare_data")
+            // .username("mare")
+            // .password("mare")
             .log_statements(LevelFilter::Debug)
-            .log_slow_statements(log::LevelFilter::Warn, core::time::Duration::from_secs(1));
-        let pool = SqlitePool::connect_with(options).await?;
+            .log_slow_statements(LevelFilter::Warn, core::time::Duration::from_secs(1));
 
-        // let pool = SqlitePool::connect(&database_url).await?;
+        let pool = PgPool::connect_with(options).await?;
 
-        info!(
-            "Connection pool with SQLx database has been created from: `{}`",
-            &database_url
-        );
+        sqlx::migrate!().run(&pool).await?;
+
+        // info!(
+        //     "Connection pool with SQLx database has been created from: `{}`",
+        //     &database_url
+        // );
 
         Ok(Self { pool })
     }
 
-    #[instrument(level = Level::INFO)]
+    #[instrument(level = Level::INFO, skip(self))]
     pub(crate) async fn add(&self, data: &AddPonyForm) -> Result<i64> {
+        let breed: i32 = data.breed.into();
+
         let query = sqlx::query_as!(
             DatabaseRecord,
-            r#"
-            insert into mares (name, breed, modified_at)
-            values (?1, ?2, strftime('%s', 'now'))
-            returning id as "id!", name as "name!", breed as "breed!", modified_at as "modified_at!"
+            r#"insert into mares (name, breed, modified_at)
+            values ($1, $2, CURRENT_TIMESTAMP)
+            returning id as "id!", name as "name!", breed as "breed!", modified_at as "modified_at!";
             "#,
             data.name,
-            data.breed
+            breed
         );
 
         let record = query.fetch_one(&self.pool).await?;
@@ -83,13 +78,13 @@ impl Database {
     }
 
     #[instrument(level = Level::INFO, skip(self))]
-    pub(crate) async fn get(&self, id: i64) -> Result<Option<DatabaseRecord>> {
+    pub(crate) async fn get(&self, id: i32) -> Result<Option<DatabaseRecord>> {
         let query = sqlx::query_as!(
             DatabaseRecord,
             r#"
             select id as "id!", name as "name!", breed as "breed!", modified_at as "modified_at!"
             from mares
-            where id = ?1
+            where id = $1
             "#,
             id
         );
@@ -108,24 +103,27 @@ impl Database {
         Ok(record)
     }
 
-    #[instrument(level = Level::INFO)]
-    pub(crate) async fn set(&self, id: i64, data: &EditPonyForm) -> Result<bool> {
+    #[instrument(level = Level::INFO, skip(self))]
+    pub(crate) async fn set(&self, id: i32, data: &EditPonyForm) -> Result<bool> {
         // Result<Option<DatabaseRecord>>
 
         // TODO return previous record data
         // SQLite doesn't support this feature :/
         // https://stackoverflow.com/questions/6725964/sqlite-get-the-old-value-after-update
 
+        let breed: i32 = data.breed.into();
+
+        // select for update
         let query = sqlx::query_as!(
             DatabaseRecord,
             r#"
             update mares
-            set name = ?1, breed = ?2, modified_at = strftime('%s','now')
-            where id = ?3 and modified_at = ?4
+            set name = $1, breed = $2, modified_at = CURRENT_TIMESTAMP
+            where id = $3 and modified_at = $4
             returning id as "id!", name as "name!", breed as "breed!", modified_at as "modified_at!"
             "#,
             data.name,
-            data.breed,
+            breed,
             id,
             data.modified_at
         );
@@ -152,7 +150,7 @@ impl Database {
         let query = sqlx::query_as!(
             DatabaseRecord,
             r#"
-            select id as "id!", name as "name!", breed as "breed!", modified_at as "modified_at!"
+            select *
             from mares
             "#
         );
@@ -165,12 +163,12 @@ impl Database {
     }
 
     #[instrument(level = Level::INFO, skip(self))]
-    pub(crate) async fn remove(&self, id: i64) -> Result<Option<DatabaseRecord>> {
+    pub(crate) async fn remove(&self, id: i32) -> Result<Option<DatabaseRecord>> {
         let query = sqlx::query_as!(
             DatabaseRecord,
             r#"
             delete from mares
-            where id = ?1
+            where id = $1
             returning name as "name!", breed as "breed!", id as "id!", modified_at as "modified_at!"
             "#,
             id

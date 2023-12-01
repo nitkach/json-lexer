@@ -2,9 +2,10 @@ mod app;
 mod database;
 
 pub async fn run() -> anyhow::Result<()> {
-    if let Err(err) = dotenvy::dotenv() {
-        return Err(anyhow::Error::new(err));
-    }
+    println!("Enter main");
 
+    if let Err(err) = dotenvy::dotenv() {
+        println!("Failed to load .env file: {}", err);
+    }
     app::run().await
 }
