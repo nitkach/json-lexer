@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::error::{Error, ErrorKind};
 
 use clap::ValueEnum;
-use sqlx::{query, SqlitePool};
+use sqlx::SqlitePool;
 
 #[derive(Debug)]
 pub struct Database {
