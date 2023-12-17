@@ -2,13 +2,40 @@ use anyhow::Result;
 use chrono::Utc;
 use log::{info, LevelFilter};
 use serde::Deserialize;
-use sqlx::{postgres::PgConnectOptions, ConnectOptions, PgPool};
+use sqlx::{
+    postgres::PgConnectOptions,
+    ConnectOptions, PgPool,
+};
 use tracing::{instrument, warn, Level};
 use url::{self, Url};
 
 use crate::app::{AddPonyForm, EditPonyForm};
 
 pub(crate) mod breed;
+
+#[derive(Debug, Deserialize)]
+struct SetStatus {
+    code: SetState,
+}
+
+#[repr(i32)]
+#[derive(Debug, Deserialize, sqlx::Type)]
+pub(crate) enum SetState {
+    Success = 0,
+    ModifiedAtConflict = 1,
+    RecordNotFound = 2,
+}
+
+impl From<i32> for SetState {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => SetState::Success,
+            1 => SetState::ModifiedAtConflict,
+            2 => SetState::RecordNotFound,
+            _ => unreachable!(),
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, Clone)]
 pub(crate) struct DatabaseRecord {
@@ -104,45 +131,37 @@ impl Database {
     }
 
     #[instrument(level = Level::INFO, skip(self))]
-    pub(crate) async fn set(&self, id: i32, data: &EditPonyForm) -> Result<bool> {
-        // Result<Option<DatabaseRecord>>
-
+    pub(crate) async fn set(&self, id: i32, data: &EditPonyForm) -> Result<SetState> {
         // TODO return previous record data
         // SQLite doesn't support this feature :/
         // https://stackoverflow.com/questions/6725964/sqlite-get-the-old-value-after-update
 
         let breed: i32 = data.breed.into();
 
-        // select for update
+        //     info!(
+        //         "Record with id = {id} modified to {} | {} | {}",
+        //         record.name, record.breed, record.modified_at
+        //     );
+        // warn!(
+        //         "Record with id = {id} and timestamp = {} not found in database.",
+        //         data.modified_at
+        //     );
+
         let query = sqlx::query_as!(
-            DatabaseRecord,
+            SetStatus,
             r#"
-            update mares
-            set name = $1, breed = $2, modified_at = CURRENT_TIMESTAMP
-            where id = $3 and modified_at = $4
-            returning id as "id!", name as "name!", breed as "breed!", modified_at as "modified_at!"
+            select code as "code!"
+            from set_mare_record($1, $2, $3, $4)
             "#,
+            id,
             data.name,
             breed,
-            id,
             data.modified_at
         );
 
-        let record = query.fetch_optional(&self.pool).await?;
+        let set_status = query.fetch_one(&self.pool).await?;
 
-        if let Some(record) = &record {
-            info!(
-                "Record with id = {id} modified to {} | {} | {}",
-                record.name, record.breed, record.modified_at
-            );
-        } else {
-            warn!(
-                "Record with id = {id} and timestamp = {} not found in database.",
-                data.modified_at
-            );
-        }
-
-        Ok(record.is_some())
+        Ok(set_status.code)
     }
 
     #[instrument(level = Level::INFO, skip(self))]

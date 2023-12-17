@@ -8,7 +8,7 @@ use chrono::{Utc, DateTime};
 use serde::Deserialize;
 
 use crate::database::breed::Breed;
-use crate::database::{Database, DatabaseRecord};
+use crate::database::{Database, DatabaseRecord, SetState};
 use app_error::AppError;
 
 mod app_error;
@@ -140,15 +140,18 @@ async fn edit_mare(
 
     // // html: timestamp (when sended) - hidden form input
     // let Some(_) = pool.set(id, &pony_data).await? else
-    if !pool.set(id, &pony_data).await? {
-        let message =
-            "Unfortunately, it is impossible to save, since the mare's record has already changed.";
-
-        // TODO possible to direct user to the mare page with the data he specified
-        return Err(AppError::new(axum::http::StatusCode::CONFLICT, anyhow!(message))).into();
+    let reason = match pool.set(id, &pony_data).await? {
+        SetState::Success => return Ok(axum::response::Redirect::to("/mares")),
+        SetState::ModifiedAtConflict => " since the mare's record has already changed.",
+        SetState::RecordNotFound => " since the mare's record is not found.",
     };
 
-    Ok(axum::response::Redirect::to("/mares"))
+    let mut message = "Unfortunately, it is impossible to save,".to_owned();
+
+    message.push_str(reason);
+
+    // TODO possible to direct user to the mare page with the data he specified
+    Err(AppError::new(axum::http::StatusCode::CONFLICT, anyhow!(message))).into()
 }
 
 #[derive(Debug, Deserialize)]

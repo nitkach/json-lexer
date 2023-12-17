@@ -1,17 +1,17 @@
 services:
-  # mare-website:
-  #   build: .
+  mare-website:
+    build: .
 
-  #   image: mare-website
+    image: mare-website
 
-  #   depends_on: [postgres]
+    depends_on: [postgres]
 
-  #   ports: [3000:3000]
-  #   networks: [postgres]
+    ports: [3000:3000]
+    networks: [postgres]
 
-  #   env_file: .env
-  #   environment:
-  #     DATABASE_URL: postgres://mare:${PG_PASSWORD}@postgres:5432/mare_data
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://mare:${PG_PASSWORD}@postgres:5432/mare_data
 
   postgres:
     image: postgres:15
@@ -22,7 +22,7 @@ services:
     environment:
       POSTGRES_DB: mare_data
       POSTGRES_USER: mare
-      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_PASSWORD: mare
 
     volumes:
       [myvol:/var/lib/postgresql/data]
@@ -35,8 +35,28 @@ services:
   #     PGADMIN_DEFAULT_PASSWORD: maresilovethem
   #   networks: [postgres]
 
+  # backend for logs
+  loki:
+    image: grafana/loki:main-be71a80
+    command: -config.file=/etc/loki/config.yml
+    volumes:
+      [loki:/loki]
+
+    ports:
+      [3100:3100]
+
+  # frontend
+  grafana:
+    image: grafana/grafana:latest
+
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: true
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+
+
 networks:
   postgres:
 
 volumes:
   myvol:
+  loki:

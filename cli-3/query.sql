@@ -8,7 +8,15 @@
 select *
 from mares;
 
--- update mares
--- set breed = 1
--- where name = 'Fluttershy'
--- returning name, breed;
+
+-- if record with id exists {
+--     if modified_at == record.modified_at {
+--         update record
+--     } else {
+--         return error: modified_at_conflict
+--     }
+-- } else {
+--     return error: record_not_found
+-- }
+
+
